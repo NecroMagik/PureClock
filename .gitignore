@@ -1,26 +1,18 @@
+# IDE and System Files
+.idea/
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+.gradle/
 .DS_Store
+
+# Android / Local Configs
+local.properties
 /build
 /captures
 .externalNativeBuild
 .cxx
-local.properties
 
+# Secrets & Binaries (Strictly Ignored)
 lock
 keystore_base64.txt
 *.apk
-build/
-
-lock
-keystore_base64.txt
-*.apk
-build/
-app/debug/
+app/build/
