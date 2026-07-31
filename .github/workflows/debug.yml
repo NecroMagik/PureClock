@@ -1,0 +1,35 @@
+name: Build and Debug APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Добавляет кнопку manual run в интерфейсе GitHub
+
+jobs:
+  build-debug:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # Для Debug подпись ключами не нужна, собираем стандартный debug APK
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      # Сохраняем APK в Artifacts (можно будет скачать в ZIP)
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PureClock-Debug-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
