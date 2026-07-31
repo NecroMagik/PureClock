@@ -1,12 +1,13 @@
-name: Build and Release APK
+name: Build and Debug APK
 
 on:
   push:
-    tags:
-      - 'v*' # Срабатывает при пуше тегов вроде v1.0, v2.0.1
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-debug:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,26 +23,17 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # Декодируем Keystore из секретов
-      - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+      # Выдаем права на исполнение gradlew
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
-      # Собираем подписанный APK
-      - name: Build Release APK
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+      # Собираем дебажный APK
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
 
-      # Создаем релиз на GitHub и прикрепляем готовый APK
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      # Сохраняем APK в Артефакты сборки
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
         with:
-          files: app/build/outputs/apk/release/app-release.apk
-          name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: PureClock-Debug-APK
+          path: app/build/outputs/apk/debug/app-debug.apk

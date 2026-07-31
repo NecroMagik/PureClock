@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # Добавляет кнопку manual run в интерфейсе GitHub
+  workflow_dispatch:
 
 jobs:
   build-debug:
@@ -23,11 +23,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # Для Debug подпись ключами не нужна, собираем стандартный debug APK
+      # Выдаем права на исполнение gradlew
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      # Собираем дебажный APK
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      # Сохраняем APK в Artifacts (можно будет скачать в ZIP)
+      # Сохраняем APK в Артефакты сборки
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
