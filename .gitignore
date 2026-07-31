@@ -13,3 +13,14 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+lock
+keystore_base64.txt
+*.apk
+build/
+
+lock
+keystore_base64.txt
+*.apk
+build/
+app/debug/
