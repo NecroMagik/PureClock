@@ -1,13 +1,12 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    // Плагин KSP для кодогенерации Room
     id("com.google.devtools.ksp") version "2.0.21-1.0.27"
 }
 
 android {
     namespace = "com.necromagik.pureclock"
-    compileSdk = 37 // Задаем 37 для требований AndroidX библиотек
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.necromagik.pureclock"
@@ -19,25 +18,40 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = file("lock") // Твой файл ключа называется lock
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true // Чистит неиспользуемые ресурсы вместе с R8
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     buildFeatures {
         compose = true
     }
 }
 
-// Настройка KSP на верхнем уровне
 ksp {
     arg("room.generateKotlin", "true")
 }
@@ -47,12 +61,13 @@ dependencies {
     implementation(libs.androidx.compose.animation.core)
     implementation(libs.androidx.compose.ui.test)
     implementation(libs.androidx.compose.ui.text)
+
     // Core & Activity Compose
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
 
-    // Jetpack Compose
+    // Jetpack Compose BOM
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -62,10 +77,8 @@ dependencies {
     // Иконки Material
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
-    // Navigation Compose
+    // Navigation & Lifecycle
     implementation("androidx.navigation:navigation-compose:2.8.8")
-
-    // Lifecycle & ViewModel Compose
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
@@ -78,7 +91,7 @@ dependencies {
     // Тестирование
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

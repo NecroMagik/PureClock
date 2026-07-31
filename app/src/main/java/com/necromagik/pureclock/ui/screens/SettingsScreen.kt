@@ -1,5 +1,7 @@
 package com.necromagik.pureclock.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,6 +16,7 @@ import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.TimerOff
@@ -35,11 +38,12 @@ import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.ClockStylePickerDialog
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
+import kotlinx.coroutines.launch
 
 // ============================================================================
 // ВЕРСИЯ ПРИЛОЖЕНИЯ (МЕНЯТЬ ЗДЕСЬ)
 // ============================================================================
-private const val APP_VERSION = "Версия Pure_1.10 !pre-release!"
+private const val APP_VERSION = "Pure_1.10 !pre-release!"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,12 +66,18 @@ private fun SettingsMainContent(
     val context = LocalContext.current
     val settingsManager = remember { SettingsManager.getInstance(context) }
     val themeConfig = LocalPureClockConfig.current
+    val coroutineScope = rememberCoroutineScope()
 
     var showStyleDialog by remember { mutableStateOf(false) }
     var showSnoozeDialog by remember { mutableStateOf(false) }
     var showAutoDismissDialog by remember { mutableStateOf(false) }
     var showDismissMethodDialog by remember { mutableStateOf(false) }
     var showUpcomingNoticeDialog by remember { mutableStateOf(false) }
+
+    // Состояния проверки обновлений
+    var isCheckingUpdates by remember { mutableStateOf(false) }
+    var updateResult by remember { mutableStateOf<SettingsManager.UpdateChecker.ReleaseInfo?>(null) }
+    var showNoUpdatesToast by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -208,6 +218,29 @@ private fun SettingsMainContent(
 
             item { SettingsHeader("О приложении") }
             item {
+                SettingsClickCard(
+                    icon = Icons.Default.Refresh,
+                    title = "Проверить обновления",
+                    subtitle = if (isCheckingUpdates) "Соединение с GitHub..." else "Текущая: $APP_VERSION",
+                    onClick = {
+                        if (!isCheckingUpdates) {
+                            isCheckingUpdates = true
+                            showNoUpdatesToast = false
+                            coroutineScope.launch {
+                                val release = SettingsManager.UpdateChecker.checkForUpdates(APP_VERSION)
+                                isCheckingUpdates = false
+                                if (release != null) {
+                                    updateResult = release
+                                } else {
+                                    showNoUpdatesToast = true
+                                }
+                            }
+                        }
+                    },
+                    iconTint = themeConfig.accentColor
+                )
+            }
+            item {
                 val shape = remember(themeConfig.cardCornerRadius) { RoundedCornerShape(themeConfig.cardCornerRadius) }
                 Box(
                     modifier = Modifier
@@ -238,7 +271,7 @@ private fun SettingsMainContent(
                                     fontSize = 18.sp
                                 )
                                 Text(
-                                    text = APP_VERSION,
+                                    text = "Версия $APP_VERSION",
                                     color = Color.Gray,
                                     fontSize = 12.sp
                                 )
@@ -335,6 +368,48 @@ private fun SettingsMainContent(
                 }
             }
         }
+    }
+
+    // Диалог найденного обновления
+    updateResult?.let { release ->
+        AlertDialog(
+            onDismissRequest = { updateResult = null },
+            title = { Text("Доступно обновление ${release.tagName}") },
+            text = {
+                Column {
+                    Text(release.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(release.downloadUrl))
+                        context.startActivity(intent)
+                        updateResult = null
+                    }
+                ) {
+                    Text("Скачать APK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateResult = null }) {
+                    Text("Позже", color = Color.Gray)
+                }
+            }
+        )
+    }
+
+    if (showNoUpdatesToast) {
+        AlertDialog(
+            onDismissRequest = { showNoUpdatesToast = false },
+            title = { Text("PureClock") },
+            text = { Text("У вас установлена последняя версия!") },
+            confirmButton = {
+                TextButton(onClick = { showNoUpdatesToast = false }) {
+                    Text("Отлично")
+                }
+            }
+        )
     }
 
     if (showStyleDialog) {

@@ -4,9 +4,14 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.ui.graphics.Color
 import com.necromagik.pureclock.ui.theme.AppThemeStyle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 enum class AnalogStyle(val title: String, val description: String) {
     OXYGEN("OxygenOS", "NEVER SETTLE"),
@@ -199,6 +204,44 @@ class SettingsManager private constructor(context: Context) {
             Color(android.graphics.Color.parseColor(hex))
         } catch (_: Exception) {
             Color(0xFF00E676)
+        }
+    }
+
+    object UpdateChecker {
+        private const val GITHUB_API_URL = "https://api.github.com/repos/NecroMagik/PureClock/releases/latest"
+
+        data class ReleaseInfo(
+            val tagName: String,
+            val downloadUrl: String,
+            val body: String
+        )
+
+        suspend fun checkForUpdates(currentVersion: String): ReleaseInfo? = withContext(Dispatchers.IO) {
+            try {
+                val url = URL(GITHUB_API_URL)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val latestTag = json.getString("tag_name")
+
+                    // Если версия на GitHub отличается от текущей
+                    if (latestTag != currentVersion) {
+                        val assets = json.getJSONArray("assets")
+                        if (assets.length() > 0) {
+                            val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
+                            val changelog = json.optString("body", "Новая версия доступна!")
+                            return@withContext ReleaseInfo(latestTag, downloadUrl, changelog)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return@withContext null
         }
     }
 }
