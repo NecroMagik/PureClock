@@ -1,19 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Разрешения -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- ================================================================= -->
+    <!-- 1. РАЗРЕШЕНИЯ ДЛЯ РАБОТЫ ЭКРАНА И СИСТЕМНОЙ БЛОКИРОВКИ (LOCKSCREEN) -->
+    <!-- ================================================================= -->
+    <!-- Пробуждение процессора и удерживание экрана зажженным -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Перехват и снятие экрана блокировки без ввода пароля/отпечатка -->
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+
+    <!-- Полноэкранные интенты поверх экрана блокировки (Android 10+) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Отображение всплывающих окон и поверх других окон (OriginOS / FuntouchOS) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- ================================================================= -->
+    <!-- 2. РАЗРЕШЕНИЯ ДЛЯ ТОЧНЫХ БУДИЛЬНИКОВ И ПЕРЕЗАГРУЗКИ              -->
+    <!-- ================================================================= -->
+    <!-- Точные будильники для Android 12+ (Target API 31+) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- Безусловное точное планирование для приложений-часов (Android 13+) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- Автоперепланирование будильников после перезагрузки телефона -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- ================================================================= -->
+    <!-- 3. УВЕДОМЛЕНИЯ, СЛУЖБЫ И АППАРАТНЫЕ ФУНКЦИИ                        -->
+    <!-- ================================================================= -->
+    <!-- Показ уведомления будильника (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Фоновая служба срабатывания -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Вибрация -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
@@ -30,7 +57,7 @@
             android:exported="true"
             android:screenOrientation="portrait" />
 
-        <!-- ЕДИНСТВЕННАЯ точка входа для лончера -->
+        <!-- Единая точка входа для лаунчера -->
         <activity-alias
             android:name=".MainActivityAliasDefault"
             android:enabled="true"
@@ -45,7 +72,11 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Будильник и фоновые службы -->
+        <!--
+            ЭКРАН БУДИЛЬНИКА:
+            Строгие флаги launchMode="singleInstance" и excludeFromRecents="true"
+            гарантируют, что окно не сцепляется с другими Activity и выходит поверх сканера.
+        -->
         <activity
             android:name=".alarm.AlarmAlertActivity"
             android:exported="false"
@@ -55,10 +86,11 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
+        <!-- Фоновая служба с типом Special Use -->
         <service
             android:name=".alarm.AlarmService"
             android:exported="false"
-            android:foregroundServiceType="specialUse|mediaPlayback"/>
+            android:foregroundServiceType="specialUse|mediaPlayback" />
 
         <property
             android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
