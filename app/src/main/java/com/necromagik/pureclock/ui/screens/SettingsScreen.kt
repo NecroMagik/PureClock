@@ -43,7 +43,7 @@ import kotlinx.coroutines.launch
 // ============================================================================
 // ВЕРСИЯ ПРИЛОЖЕНИЯ (МЕНЯТЬ ЗДЕСЬ)
 // ============================================================================
-private const val APP_VERSION = "Pure_1.10 !pre-release!"
+private const val APP_VERSION = "Pure_1.12 !pre-release!"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

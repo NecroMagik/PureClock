@@ -238,7 +238,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(84.dp) // <-- Увеличили высоту со 72dp до 84dp
+                                                .height(84.dp)
                                                 .padding(horizontal = 6.dp, vertical = 4.dp),
                                             horizontalArrangement = Arrangement.SpaceAround,
                                             verticalAlignment = Alignment.CenterVertically
@@ -304,7 +304,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         shape = CircleShape,
                                         modifier = Modifier
                                             .offset(y = (-46).dp)
-                                            .size(75.dp) // <-- Точный размер 75dp
+                                            .size(75.dp)
                                             .bounceClick()
                                     ) {
                                         AnimatedContent(
@@ -315,7 +315,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             Icon(
                                                 imageVector = icon,
                                                 contentDescription = "Действие",
-                                                modifier = Modifier.size(38.dp) // Пропорционально увеличенная внутренняя иконка
+                                                modifier = Modifier.size(38.dp)
                                             )
                                         }
                                     }
@@ -348,21 +348,35 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             onDialogDismiss = { showAddCityDialog = false }
                                         )
 
-                                        ClockTab.TIMER -> TimerScreen(
-                                            onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
-                                            onTimerStateChanged = { running, action ->
-                                                isTimerRunning = running
-                                                onTimerAction = action
-                                            }
-                                        )
+                                        ClockTab.TIMER -> {
+                                            // Временная заглушка
+                                            UnderDevelopmentPlaceholder()
 
-                                        ClockTab.STOPWATCH -> StopwatchScreen(
-                                            onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
-                                            onStopwatchStateChanged = { running, action ->
-                                                isStopwatchRunning = running
-                                                onStopwatchAction = action
-                                            }
-                                        )
+                                            /* РАБОЧИЙ ЭКРАН ТАЙМЕРА (Раскомментируйте при необходимости):
+                                            TimerScreen(
+                                                onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
+                                                onTimerStateChanged = { running, action ->
+                                                    isTimerRunning = running
+                                                    onTimerAction = action
+                                                }
+                                            )
+                                            */
+                                        }
+
+                                        ClockTab.STOPWATCH -> {
+                                            // Временная заглушка
+                                            UnderDevelopmentPlaceholder()
+
+                                            /* РАБОЧИЙ ЭКРАН СЕКУНДОМЕРА (Раскомментируйте при необходимости):
+                                            StopwatchScreen(
+                                                onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
+                                                onStopwatchStateChanged = { running, action ->
+                                                    isStopwatchRunning = running
+                                                    onStopwatchAction = action
+                                                }
+                                            )
+                                            */
+                                        }
                                     }
                                 }
                             }
@@ -375,8 +389,23 @@ fun MainScreen(viewModel: AlarmViewModel) {
 }
 
 // ============================================================================
-// СЕКЦИЯ 4: ИНТЕРАКТИВНЫЕ 3D-ВКЛАДКИ НАВИГАЦИИ
+// СЕКЦИЯ 4: ИНТЕРАКТИВНЫЕ 3D-ВКЛАДКИ НАВИГАЦИИ И ЗАГЛУШКА
 // ============================================================================
+@Composable
+private fun UnderDevelopmentPlaceholder() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "В разработке",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
 @Composable
 private fun NavTabItem3D(
     tab: ClockTab,

@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Точные будильники (Android 12+) -->
+    <!-- Разрешения -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-
-    <!-- Дополнительные разрешения -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -23,18 +21,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PureClock">
 
-        <!-- Главное окно приложения (Без лишних lockscreen флагов) -->
+        <!-- Главное окно приложения -->
         <activity
             android:name=".MainActivity"
+            android:enabled="true"
             android:exported="true"
-            android:screenOrientation="portrait">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:screenOrientation="portrait" />
 
-        <!-- Алиас 1: Иконка по умолчанию -->
+        <!-- ЕДИНСТВЕННАЯ точка входа для лончера -->
         <activity-alias
             android:name=".MainActivityAliasDefault"
             android:enabled="true"
@@ -49,22 +43,7 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Алиас 2: Альтернативная динамическая иконка -->
-        <activity-alias
-            android:name=".MainActivityAliasAlt"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher"
-            android:label="PureClock"
-            android:roundIcon="@mipmap/ic_launcher_round"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-
-        <!-- Окно срабатывания будильника поверх экрана блокировки -->
+        <!-- Будильник и фоновые службы -->
         <activity
             android:name=".alarm.AlarmAlertActivity"
             android:exported="false"
@@ -72,7 +51,6 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
-        <!-- Фоновая служба воспроизведения сигнала -->
         <service
             android:name=".alarm.AlarmService"
             android:exported="false"
@@ -82,10 +60,14 @@
             android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
             android:value="Alarm Clock Notification Service" />
 
-        <!-- BroadcastReceiver для системных событий -->
         <receiver
             android:name=".alarm.AlarmReceiver"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_TICK" />
+                <action android:name="com.necromagik.pureclock.ACTION_UPDATE_LIVE_ICON" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".alarm.BootReceiver"

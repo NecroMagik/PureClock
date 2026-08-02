@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.WorldCity
 import com.necromagik.pureclock.data.WorldClockRepository
@@ -40,6 +41,12 @@ fun WorldClockScreen(
     val context = LocalContext.current
     val settingsManager = remember { SettingsManager.getInstance(context) }
 
+    // Инициализируем репозиторий с передачей Room DAO
+    val repository = remember {
+        val db = AppDatabase.getDatabase(context)
+        WorldClockRepository(db.cityDao(), context)
+    }
+
     var savedIds by remember { mutableStateOf(settingsManager.savedCityIds) }
     var showAddCityDialog by remember { mutableStateOf(false) }
 
@@ -47,9 +54,11 @@ fun WorldClockScreen(
 
     var currentShiftHours by remember { mutableIntStateOf(0) }
 
-    val allCities = remember { WorldClockRepository.getSystemCities() }
-    val savedCities = remember(savedIds) {
-        allCities.filter { savedIds.contains(it.id) }
+    // Загружаем города асинхронно из базы Room
+    var savedCities by remember { mutableStateOf<List<WorldCity>>(emptyList()) }
+
+    LaunchedEffect(savedIds) {
+        savedCities = repository.getSavedCities(savedIds)
     }
 
     Scaffold(
@@ -87,7 +96,7 @@ fun WorldClockScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "${savedCities.size} из ${allCities.size}",
+                    text = "${savedCities.size} городов",
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                     fontSize = 11.sp
                 )
@@ -134,7 +143,7 @@ fun WorldClockScreen(
     if (isDialogVisible) {
         AddCityDialog(
             alreadySavedIds = savedIds,
-            allCities = allCities,
+            repository = repository,
             onCitySelected = { cityId ->
                 val newSet = savedIds + cityId
                 savedIds = newSet
@@ -226,47 +235,26 @@ private fun CityClockCard(
 }
 
 // ============================================================================
-// СЕКЦИЯ 4: ДИАЛОГ ОФЛАЙН/ОНЛАЙН ПОИСКА ГОРОДОВ
+// СЕКЦИЯ 4: ДИАЛОГ ОФЛАЙН/ОНЛАЙН ПОИСКА ГОРОДОВ ЧЕРЕЗ ROOM
 // ============================================================================
 @Composable
 private fun AddCityDialog(
     alreadySavedIds: Set<String>,
-    allCities: List<WorldCity>,
+    repository: WorldClockRepository,
     onCitySelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val themeConfig = LocalPureClockConfig.current
     var searchQuery by remember { mutableStateOf("") }
-    var onlineResults by remember { mutableStateOf<List<WorldCity>>(emptyList()) }
+    var searchResults by remember { mutableStateOf<List<WorldCity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
+    // Делаем мгновенный реактивный поиск в Room БД при вводе
     LaunchedEffect(searchQuery) {
-        val query = searchQuery.trim()
-        if (query.length >= 2) {
-            isLoading = true
-            val results = WorldClockRepository.searchCityOnline(query)
-            onlineResults = results
-            isLoading = false
-        } else {
-            onlineResults = emptyList()
-            isLoading = false
-        }
-    }
-
-    val filteredOfflineCities = remember(searchQuery, alreadySavedIds) {
-        val query = searchQuery.trim().lowercase()
-        allCities.filter { city ->
-            !alreadySavedIds.contains(city.id) &&
-                    (query.isEmpty() ||
-                            city.cityName.lowercase().contains(query) ||
-                            city.countryName.lowercase().contains(query) ||
-                            city.searchKeywords.lowercase().contains(query))
-        }
-    }
-
-    val displayCities = remember(filteredOfflineCities, onlineResults, alreadySavedIds) {
-        (onlineResults.filter { !alreadySavedIds.contains(it.id) } + filteredOfflineCities)
-            .distinctBy { "${it.cityName}_${it.timeZoneId}" }
+        isLoading = true
+        searchResults = repository.searchCities(searchQuery)
+            .filter { !alreadySavedIds.contains(it.id) }
+        isLoading = false
     }
 
     AlertDialog(
@@ -277,7 +265,7 @@ private fun AddCityDialog(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Поиск (Мумбаи, Архангельск)...") },
+                    placeholder = { Text("Поиск (Пекин, Мумбаи)...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (isLoading) {
@@ -294,7 +282,7 @@ private fun AddCityDialog(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                if (displayCities.isEmpty() && !isLoading) {
+                if (searchResults.isEmpty() && !isLoading) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -305,7 +293,7 @@ private fun AddCityDialog(
                     }
                 } else {
                     LazyColumn {
-                        itemsIndexed(displayCities, key = { _, city -> city.id }) { index, city ->
+                        itemsIndexed(searchResults, key = { _, city -> city.id }) { index, city ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

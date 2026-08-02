@@ -23,9 +23,6 @@ import com.necromagik.pureclock.ui.theme.PureClockTheme
 import com.necromagik.pureclock.ui.viewmodel.AlarmViewModel
 import com.necromagik.pureclock.util.ClockIconManager
 
-// ============================================================================
-// СЕКЦИЯ 1: ИНИЦИАЛИЗАЦИЯ И НАСТРОЙКА ОKНА ДИНАМИЧЕСКИХ ИКОНОК
-// ============================================================================
 class MainActivity : ComponentActivity() {
 
     private val alarmViewModel: AlarmViewModel by viewModels()
@@ -33,8 +30,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val clockIconManager = ClockIconManager(applicationContext)
-        clockIconManager.setAppIconAlias(useAltIcon = true)
+        // Обновляем Dynamic Shortcut со свежими стрелками
+        ClockIconManager(applicationContext).updateDynamicShortcut()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(false)
@@ -45,9 +42,6 @@ class MainActivity : ComponentActivity() {
                     WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
         )
 
-// ============================================================================
-// СЕКЦИЯ 2: ИНТЕГРАЦИЯ COMPOSE, EDGE-TO-EDGE И СИСТЕМНОЙ ТЕМАТИЗАЦИИ
-// ============================================================================
         setContent {
             val settingsManager = remember { SettingsManager.getInstance(applicationContext) }
             val themeState by settingsManager.themeState.collectAsState()
@@ -59,7 +53,6 @@ class MainActivity : ComponentActivity() {
                 else -> isSystemDark
             }
 
-            // Динамическая адаптация системных панелей (Status Bar & Navigation Bar)
             DisposableEffect(isDark) {
                 enableEdgeToEdge(
                     statusBarStyle = if (isDark) {

@@ -5,17 +5,16 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-// ============================================================================
-// СЕКЦИЯ 1: КОНФИГУРАЦИЯ БАЗЫ ДАННЫХ ROOM
-// ============================================================================
-@Database(entities = [AlarmEntity::class], version = 2, exportSchema = false)
+@Database(
+    entities = [AlarmEntity::class, CityEntity::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun alarmDao(): AlarmDao
+    abstract fun cityDao(): CityDao
 
-    // ============================================================================
-// СЕКЦИЯ 2: SINGLETON ИНИЦИАЛИЗАЦИЯ И МИГРАЦИИ
-// ============================================================================
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
@@ -28,6 +27,9 @@ abstract class AppDatabase : RoomDatabase() {
                     "pure_clock_database"
                 )
                     .fallbackToDestructiveMigration()
+                    // Если положишь предзагруженный файл базы в assets/databases/cities_initial.db,
+                    // раскомментируй следующую строчку:
+                    // .createFromAsset("databases/cities_initial.db")
                     .build()
                 INSTANCE = instance
                 instance
