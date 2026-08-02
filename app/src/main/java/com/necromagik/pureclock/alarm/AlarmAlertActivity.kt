@@ -92,20 +92,18 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun wakeUpDeviceAndShowOverLockscreen() {
+        // Запрашиваем отображение строго поверх экрана блокировки
         setShowWhenLocked(true)
         setTurnScreenOn(true)
+
         val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
         keyguardManager.requestDismissKeyguard(this, null)
 
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "PureClock:AlarmWakeLock"
-        ).apply {
-            acquire(30000)
-        }
+        // Держим экран включенным
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
+        )
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -129,9 +127,6 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
     override fun onDestroy() {
         sensorManager?.unregisterListener(this)
-        if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
-        }
         super.onDestroy()
     }
 
