@@ -4,42 +4,25 @@
     <!-- ================================================================= -->
     <!-- 1. РАЗРЕШЕНИЯ ДЛЯ РАБОТЫ ЭКРАНА И СИСТЕМНОЙ БЛОКИРОВКИ (LOCKSCREEN) -->
     <!-- ================================================================= -->
-    <!-- Пробуждение процессора и удерживание экрана зажженным -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-
-    <!-- Перехват и снятие экрана блокировки без ввода пароля/отпечатка -->
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
-
-    <!-- Полноэкранные интенты поверх экрана блокировки (Android 10+) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-
-    <!-- Отображение всплывающих окон и поверх других окон (OriginOS / FuntouchOS) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- ================================================================= -->
     <!-- 2. РАЗРЕШЕНИЯ ДЛЯ ТОЧНЫХ БУДИЛЬНИКОВ И ПЕРЕЗАГРУЗКИ              -->
     <!-- ================================================================= -->
-    <!-- Точные будильники для Android 12+ (Target API 31+) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-
-    <!-- Безусловное точное планирование для приложений-часов (Android 13+) -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-
-    <!-- Автоперепланирование будильников после перезагрузки телефона -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- ================================================================= -->
     <!-- 3. УВЕДОМЛЕНИЯ, СЛУЖБЫ И АППАРАТНЫЕ ФУНКЦИИ                        -->
     <!-- ================================================================= -->
-    <!-- Показ уведомления будильника (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Фоновая служба срабатывания -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-
-    <!-- Вибрация -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
@@ -50,14 +33,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PureClock">
 
-        <!-- Главное окно приложения -->
+        <!-- Главное окно приложения (БЕЗ фильтра LAUNCHER, чтобы не плодить дубликаты) -->
         <activity
             android:name=".MainActivity"
             android:enabled="true"
             android:exported="true"
-            android:screenOrientation="portrait" />
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.PureClock" />
 
-        <!-- Единая точка входа для лаунчера -->
+        <!-- Единая точка входа для лаунчера (Здесь фильтр ОСТАЕТСЯ) -->
         <activity-alias
             android:name=".MainActivityAliasDefault"
             android:enabled="true"
@@ -72,11 +56,7 @@
             </intent-filter>
         </activity-alias>
 
-        <!--
-            ЭКРАН БУДИЛЬНИКА:
-            Строгие флаги launchMode="singleInstance" и excludeFromRecents="true"
-            гарантируют, что окно не сцепляется с другими Activity и выходит поверх сканера.
-        -->
+        <!-- ЭКРАН БУДИЛЬНИКА / ТАЙМЕРА -->
         <activity
             android:name=".alarm.AlarmAlertActivity"
             android:exported="false"
@@ -86,9 +66,13 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
-        <!-- Фоновая служба с типом Special Use -->
+        <!-- Фоновые службы -->
         <service
             android:name=".alarm.AlarmService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|mediaPlayback" />
+        <service
+            android:name=".alarm.TimerService"
             android:exported="false"
             android:foregroundServiceType="specialUse|mediaPlayback" />
 
@@ -113,6 +97,14 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".alarm.TimerReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.necromagik.pureclock.ACTION_TIMER_ALARM" />
             </intent-filter>
         </receiver>
 

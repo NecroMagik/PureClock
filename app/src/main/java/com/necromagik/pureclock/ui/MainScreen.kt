@@ -13,7 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.necromagik.pureclock.data.AlarmEntity
 import com.necromagik.pureclock.ui.animation.PureClockAnimationSpecs
 import com.necromagik.pureclock.ui.animation.bounceClick
@@ -33,19 +34,16 @@ import com.necromagik.pureclock.ui.components.Pure3DIcon
 import com.necromagik.pureclock.ui.screens.AddEditAlarmScreen
 import com.necromagik.pureclock.ui.screens.AlarmListScreen
 import com.necromagik.pureclock.ui.screens.SettingsScreen
-import com.necromagik.pureclock.ui.screens.StopwatchScreen
 import com.necromagik.pureclock.ui.screens.TimerScreen
 import com.necromagik.pureclock.ui.screens.WorldClockScreen
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.ThemeEngineScreen
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.ui.viewmodel.AlarmViewModel
+import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 
-// ============================================================================
-// СЕКЦИЯ 1: МАРШРУТЫ И ВКЛАДКИ НАВИГАЦИИ
-// ============================================================================
 enum class ClockTab(val title: String, val tabType: BottomBarTab) {
     ALARM("Будильник", BottomBarTab.ALARM),
     WORLD_CLOCK("Время", BottomBarTab.WORLD_CLOCK),
@@ -59,14 +57,12 @@ enum class ScreenRoute {
     THEME_ENGINE
 }
 
-// ============================================================================
-// СЕКЦИЯ 2: ГЛАВНЫЙ ЭКРАН И МАНЕДЖМЕНТ ПЕРЕХОДОВ
-// ============================================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(viewModel: AlarmViewModel) {
     var currentRoute by remember { mutableStateOf(ScreenRoute.MAIN) }
 
+    val timerViewModel: TimerViewModel = viewModel()
     val pagerState = rememberPagerState(initialPage = 0) { ClockTab.entries.size }
     val coroutineScope = rememberCoroutineScope()
     val themeConfig = LocalPureClockConfig.current
@@ -75,11 +71,10 @@ fun MainScreen(viewModel: AlarmViewModel) {
     var editingAlarm by remember { mutableStateOf<AlarmEntity?>(null) }
     var showAddCityDialog by remember { mutableStateOf(false) }
 
-    var isTimerRunning by remember { mutableStateOf(false) }
     var onTimerAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    var isStopwatchRunning by remember { mutableStateOf(false) }
-    var onStopwatchAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val isStopwatchRunning by remember { mutableStateOf(false) }
+    val onStopwatchAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val alarms by viewModel.alarms.collectAsState()
 
@@ -125,7 +120,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                 initialRingtoneUri = alarmToEdit?.ringtoneUri,
                 initialDaysOfWeek = alarmToEdit?.daysOfWeek ?: 0,
                 initialSpecificDateMillis = alarmToEdit?.specificDateMillis,
-                onSave = { hour, minute, days, dates, label, ringtoneUri, isVibrate ->
+                onSave = { hour, minute, days, dates, label, _, isVibrate ->
                     val daysMask = days.fold(0) { mask, day -> mask or (1 shl (day.value - 1)) }
                     val specificDate = if (dates.isNotEmpty()) {
                         dates.minOrNull()?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
@@ -213,9 +208,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                     }
                                 }
                             },
-// ============================================================================
-// СЕКЦИЯ 3: 3D НИЖНЯЯ ПАНЕЛЬ С ВЕКТОРНЫМИ КИНЕМАТИЧЕСКИМИ ИКОНКАМИ
-// ============================================================================
                             bottomBar = {
                                 Box(
                                     modifier = Modifier.fillMaxWidth(),
@@ -256,7 +248,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                 modifier = Modifier.weight(1f)
                                             )
 
-                                            Spacer(modifier = Modifier.width(80.dp)) // Отступ под центральный FAB
+                                            Spacer(modifier = Modifier.width(80.dp))
 
                                             NavTabItem3D(
                                                 tab = ClockTab.TIMER,
@@ -273,7 +265,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         }
                                     }
 
-                                    // Вырез под FAB
                                     Box(
                                         modifier = Modifier
                                             .offset(y = (-40).dp)
@@ -286,7 +277,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                     val fabIcon = when (currentTab) {
                                         ClockTab.ALARM -> Icons.Default.Add
                                         ClockTab.WORLD_CLOCK -> Icons.Default.Search
-                                        ClockTab.TIMER -> if (isTimerRunning) Icons.Default.Pause else Icons.Default.PlayArrow
+                                        ClockTab.TIMER -> Icons.Default.HourglassEmpty
                                         ClockTab.STOPWATCH -> if (isStopwatchRunning) Icons.Default.Flag else Icons.Default.PlayArrow
                                     }
 
@@ -349,33 +340,17 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         )
 
                                         ClockTab.TIMER -> {
-                                            // Временная заглушка
-                                            UnderDevelopmentPlaceholder()
-
-                                            /* РАБОЧИЙ ЭКРАН ТАЙМЕРА (Раскомментируйте при необходимости):
                                             TimerScreen(
+                                                timerViewModel = timerViewModel,
                                                 onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
-                                                onTimerStateChanged = { running, action ->
-                                                    isTimerRunning = running
+                                                onTimerStateChanged = { _, action ->
                                                     onTimerAction = action
                                                 }
                                             )
-                                            */
                                         }
 
                                         ClockTab.STOPWATCH -> {
-                                            // Временная заглушка
                                             UnderDevelopmentPlaceholder()
-
-                                            /* РАБОЧИЙ ЭКРАН СЕКУНДОМЕРА (Раскомментируйте при необходимости):
-                                            StopwatchScreen(
-                                                onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
-                                                onStopwatchStateChanged = { running, action ->
-                                                    isStopwatchRunning = running
-                                                    onStopwatchAction = action
-                                                }
-                                            )
-                                            */
                                         }
                                     }
                                 }
@@ -388,9 +363,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
     }
 }
 
-// ============================================================================
-// СЕКЦИЯ 4: ИНТЕРАКТИВНЫЕ 3D-ВКЛАДКИ НАВИГАЦИИ И ЗАГЛУШКА
-// ============================================================================
 @Composable
 private fun UnderDevelopmentPlaceholder() {
     Box(

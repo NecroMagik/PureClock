@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -285,9 +286,9 @@ fun AlarmListScreen(
                                         modifier = Modifier.bounceClick()
                                     ) {
                                         Icon(
-                                            imageVector = if (isCardView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                                            imageVector = if (isCardView) Icons.Default.GridView else Icons.Default.ViewDay,
                                             contentDescription = "Сменить вид",
-                                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                            tint = themeConfig.accentColor
                                         )
                                     }
                                 }
