@@ -33,15 +33,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PureClock">
 
-        <!-- Главное окно приложения (БЕЗ фильтра LAUNCHER, чтобы не плодить дубликаты) -->
+        <!-- Главное окно приложения (Зафиксировано в PORTRAIT) -->
         <activity
             android:name=".MainActivity"
             android:enabled="true"
             android:exported="true"
             android:launchMode="singleTop"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.PureClock" />
 
-        <!-- Единая точка входа для лаунчера (Здесь фильтр ОСТАЕТСЯ) -->
+        <!-- Алиас ярлыка (Зафиксировано в PORTRAIT) -->
         <activity-alias
             android:name=".MainActivityAliasDefault"
             android:enabled="true"
@@ -49,6 +50,7 @@
             android:icon="@mipmap/ic_launcher"
             android:label="PureClock"
             android:roundIcon="@mipmap/ic_launcher_round"
+            android:screenOrientation="portrait"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -56,12 +58,13 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- ЭКРАН БУДИЛЬНИКА / ТАЙМЕРА -->
+        <!-- ЭКРАН БУДИЛЬНИКА / ТАЙМЕРА (Зафиксировано в PORTRAIT) -->
         <activity
             android:name=".alarm.AlarmAlertActivity"
             android:exported="false"
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
+            android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
