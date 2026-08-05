@@ -13,14 +13,14 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1
-        versionName = "Pure_1.13 !pre-release!"
+        versionName = "Pure_1.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
         create("release") {
-            val keystoreFile = file("lock") // Твой файл ключа называется lock
+            val keystoreFile = file("lock")
             if (keystoreFile.exists()) {
                 storeFile = keystoreFile
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
@@ -33,7 +33,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            isShrinkResources = true // Чистит неиспользуемые ресурсы вместе с R8
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -77,12 +77,15 @@ dependencies {
     // Иконки Material
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
+    // Gson для сериализации конфигураций
+    implementation("com.google.code.gson:gson:2.10.1")
+
     // Navigation & Lifecycle
     implementation("androidx.navigation:navigation-compose:2.8.8")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
-    // Room (База данных)
+    // Room
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")

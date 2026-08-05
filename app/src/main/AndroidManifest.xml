@@ -1,24 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- ================================================================= -->
-    <!-- 1. РАЗРЕШЕНИЯ ДЛЯ РАБОТЫ ЭКРАНА И СИСТЕМНОЙ БЛОКИРОВКИ (LOCKSCREEN) -->
-    <!-- ================================================================= -->
+    <!-- Разрешения -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
-    <!-- ================================================================= -->
-    <!-- 2. РАЗРЕШЕНИЯ ДЛЯ ТОЧНЫХ БУДИЛЬНИКОВ И ПЕРЕЗАГРУЗКИ              -->
-    <!-- ================================================================= -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!-- ================================================================= -->
-    <!-- 3. УВЕДОМЛЕНИЯ, СЛУЖБЫ И АППАРАТНЫЕ ФУНКЦИИ                        -->
-    <!-- ================================================================= -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -34,7 +24,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PureClock">
 
-        <!-- Главное окно приложения (Зафиксировано в PORTRAIT) -->
+        <!-- Главное окно -->
         <activity
             android:name=".MainActivity"
             android:enabled="true"
@@ -43,7 +33,6 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.PureClock" />
 
-        <!-- Алиас ярлыка (Зафиксировано в PORTRAIT) -->
         <activity-alias
             android:name=".MainActivityAliasDefault"
             android:enabled="true"
@@ -59,12 +48,23 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- ЭКРАН БУДИЛЬНИКА / ТАЙМЕРА (Зафиксировано в PORTRAIT) -->
+        <!-- Экран конфигуратора виджета -->
+        <activity
+            android:name=".widget.WidgetConfigActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.PureClock">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Экран будильника -->
         <activity
             android:name=".alarm.AlarmAlertActivity"
+            android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleInstance"
-            android:excludeFromRecents="true"
             android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
@@ -110,6 +110,23 @@
             <intent-filter>
                 <action android:name="com.necromagik.pureclock.ACTION_TIMER_ALARM" />
             </intent-filter>
+        </receiver>
+
+        <!-- ================================================================= -->
+        <!-- ЕДИНЫЙ НАСТРАИВАЕМЫЙ ВИДЖЕТ PURECLOCK                              -->
+        <!-- ================================================================= -->
+        <receiver
+            android:name=".widget.PureClockWidgetProvider"
+            android:exported="true"
+            android:label="PureClock: Конструктор Виджета">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.TIME_TICK" />
+                <action android:name="com.necromagik.pureclock.ACTION_WIDGET_UPDATE_TICK" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/pureclock_widget_info" />
         </receiver>
 
     </application>
