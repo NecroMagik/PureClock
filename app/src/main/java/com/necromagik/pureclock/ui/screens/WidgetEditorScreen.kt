@@ -23,7 +23,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.model.*
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
@@ -37,7 +36,6 @@ fun WidgetEditorScreen(
     onBackClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val settings = remember { SettingsManager.getInstance(context) }
     val themeConfig = LocalPureClockConfig.current
     var config by remember { mutableStateOf(initialConfig) }
 
@@ -50,7 +48,7 @@ fun WidgetEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Конструктор виджета", fontWeight = FontWeight.Bold) },
+                title = { Text("Конструктор виджета 3×2", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick, modifier = Modifier.bounceClick()) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -67,11 +65,10 @@ fun WidgetEditorScreen(
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp)
         ) {
-            // Живое превью Canvas
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(210.dp)
+                    .height(200.dp)
                     .background(Color.Black.copy(alpha = 0.4f), shape = RoundedCornerShape(24.dp))
                     .padding(8.dp),
                 contentAlignment = Alignment.Center
@@ -89,6 +86,73 @@ fun WidgetEditorScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // БАББЛ: ПОРЯДОК ЭЛЕМЕНТОВ
+                item {
+                    ExpandableSettingBubble(
+                        title = "Порядок слоев (Вверх / Вниз)",
+                        subtitle = "Изменение вертикальной последовательности",
+                        icon = Icons.Default.Reorder,
+                        isExpanded = expandedBubble == "ORDER",
+                        accentColor = themeConfig.accentColor,
+                        onToggle = { expandedBubble = if (expandedBubble == "ORDER") null else "ORDER" }
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val currentList = config.safeElementOrder.toMutableList()
+                            currentList.forEachIndexed { index, type ->
+                                val title = when (type) {
+                                    WidgetElementType.TIME -> "⏰ Часы"
+                                    WidgetElementType.DATE -> "📅 Дата"
+                                    WidgetElementType.WEATHER -> "🌤️ Погода"
+                                }
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                        Row {
+                                            IconButton(
+                                                onClick = {
+                                                    if (index > 0) {
+                                                        val updated = currentList.toMutableList()
+                                                        val temp = updated[index]
+                                                        updated[index] = updated[index - 1]
+                                                        updated[index - 1] = temp
+                                                        config = config.copy(elementOrder = updated)
+                                                    }
+                                                },
+                                                enabled = index > 0
+                                            ) {
+                                                Icon(Icons.Default.ArrowUpward, contentDescription = "Вверх")
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    if (index < currentList.size - 1) {
+                                                        val updated = currentList.toMutableList()
+                                                        val temp = updated[index]
+                                                        updated[index] = updated[index + 1]
+                                                        updated[index + 1] = temp
+                                                        config = config.copy(elementOrder = updated)
+                                                    }
+                                                },
+                                                enabled = index < currentList.size - 1
+                                            ) {
+                                                Icon(Icons.Default.ArrowDownward, contentDescription = "Вниз")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // БАББЛ 1: ПОЗИЦИОНИРОВАНИЕ (3x3)
                 item {
                     ExpandableSettingBubble(
@@ -125,7 +189,7 @@ fun WidgetEditorScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("Формат циферблата", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                                ClockDisplayMode.values().forEachIndexed { index, mode ->
+                                ClockDisplayMode.entries.forEachIndexed { index, mode ->
                                     SegmentedButton(
                                         selected = config.safeDisplayMode == mode,
                                         onClick = { config = config.copy(displayMode = mode) },
@@ -137,10 +201,10 @@ fun WidgetEditorScreen(
                             }
 
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("Выбор стиля циферблата (5 вариантов)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Уникальный стиль (5 вариантов)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
 
                             if (config.safeDisplayMode == ClockDisplayMode.ANALOG) {
-                                AnalogStyleType.values().forEach { style ->
+                                AnalogStyleType.entries.forEach { style ->
                                     FilterChip(
                                         selected = config.safeAnalogStyle == style,
                                         onClick = { config = config.copy(analogStyle = style) },
@@ -149,7 +213,7 @@ fun WidgetEditorScreen(
                                     )
                                 }
                             } else {
-                                DigitalStyleType.values().forEach { style ->
+                                DigitalStyleType.entries.forEach { style ->
                                     FilterChip(
                                         selected = config.safeDigitalStyle == style,
                                         onClick = { config = config.copy(digitalStyle = style) },
@@ -160,11 +224,11 @@ fun WidgetEditorScreen(
                             }
 
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("Размер часов: ${config.timeFontSizeSp} sp (45 - 200)", fontSize = 13.sp)
+                            Text("Размер часов: ${config.timeFontSizeSp} sp", fontSize = 13.sp)
                             Slider(
                                 value = config.timeFontSizeSp.toFloat(),
                                 onValueChange = { config = config.copy(timeFontSizeSp = it.toInt()) },
-                                valueRange = 45f..200f,
+                                valueRange = 40f..160f,
                                 colors = SliderDefaults.colors(thumbColor = themeConfig.accentColor)
                             )
                         }
@@ -185,11 +249,11 @@ fun WidgetEditorScreen(
                         onToggle = { expandedBubble = if (expandedBubble == "DATE") null else "DATE" }
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Размер шрифта даты: ${config.dateFontSizeSp} sp (12 - 70)", fontSize = 13.sp)
+                            Text("Размер шрифта даты: ${config.dateFontSizeSp} sp", fontSize = 13.sp)
                             Slider(
                                 value = config.dateFontSizeSp.toFloat(),
                                 onValueChange = { config = config.copy(dateFontSizeSp = it.toInt()) },
-                                valueRange = 12f..70f,
+                                valueRange = 12f..50f,
                                 colors = SliderDefaults.colors(thumbColor = themeConfig.accentColor)
                             )
                         }
@@ -210,11 +274,11 @@ fun WidgetEditorScreen(
                         onToggle = { expandedBubble = if (expandedBubble == "WEATHER") null else "WEATHER" }
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Размер шрифта погоды: ${config.weatherFontSizeSp} sp (12 - 70)", fontSize = 13.sp)
+                            Text("Размер шрифта погоды: ${config.weatherFontSizeSp} sp", fontSize = 13.sp)
                             Slider(
                                 value = config.weatherFontSizeSp.toFloat(),
                                 onValueChange = { config = config.copy(weatherFontSizeSp = it.toInt()) },
-                                valueRange = 12f..70f,
+                                valueRange = 12f..50f,
                                 colors = SliderDefaults.colors(thumbColor = themeConfig.accentColor)
                             )
                         }
@@ -224,15 +288,18 @@ fun WidgetEditorScreen(
                 // БАББЛ 5: ФОН
                 item {
                     ExpandableSettingBubble(
-                        title = "Параметры фона",
-                        subtitle = "Прозрачность ${(config.backgroundAlpha * 100).toInt()}%",
+                        title = "Фон подложки",
+                        subtitle = if (config.showBackground) "Прозрачность ${(config.backgroundAlpha * 100).toInt()}%" else "Фон отключен",
                         icon = Icons.Default.FormatPaint,
                         isExpanded = expandedBubble == "BACKGROUND",
                         accentColor = themeConfig.accentColor,
+                        hasSwitch = true,
+                        isChecked = config.showBackground,
+                        onCheckChange = { config = config.copy(showBackground = it) },
                         onToggle = { expandedBubble = if (expandedBubble == "BACKGROUND") null else "BACKGROUND" }
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Прозрачность подложки: ${(config.backgroundAlpha * 100).toInt()}%", fontSize = 13.sp)
+                            Text("Прозрачность фона: ${(config.backgroundAlpha * 100).toInt()}%", fontSize = 13.sp)
                             Slider(
                                 value = config.backgroundAlpha,
                                 onValueChange = { config = config.copy(backgroundAlpha = it) },
@@ -243,11 +310,11 @@ fun WidgetEditorScreen(
                     }
                 }
 
-                // БАББЛ 6: КОНТУРНАЯ РАМКА И СRoundings
+                // БАББЛ 6: ОБНОВЛЕННАЯ КОНТУРНАЯ РАМКА
                 item {
                     ExpandableSettingBubble(
-                        title = "Контурная рамка и скругление",
-                        subtitle = if (config.showBorder) "Толщина ${config.borderWidthDp} dp • Скругление ${config.cornerRadiusDp} dp" else "Рамка выключена",
+                        title = "Переработанная контурная рамка",
+                        subtitle = if (config.showBorder) "Стиль ${config.borderStyle.name} • ${config.borderWidthDp} dp" else "Рамка отключена",
                         icon = Icons.Default.CropFree,
                         isExpanded = expandedBubble == "BORDER",
                         accentColor = themeConfig.accentColor,
@@ -257,20 +324,43 @@ fun WidgetEditorScreen(
                         onToggle = { expandedBubble = if (expandedBubble == "BORDER") null else "BORDER" }
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Толщина рамки: ${config.borderWidthDp} dp", fontSize = 13.sp)
+                            Text("Стиль границы", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                BorderStyle.entries.forEach { style ->
+                                    FilterChip(
+                                        selected = config.borderStyle == style,
+                                        onClick = { config = config.copy(borderStyle = style) },
+                                        label = { Text(style.name) }
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Неоновое свечение границы", fontSize = 13.sp)
+                                Switch(
+                                    checked = config.enableBorderGlow,
+                                    onCheckedChange = { config = config.copy(enableBorderGlow = it) },
+                                    colors = SwitchDefaults.colors(checkedTrackColor = themeConfig.accentColor)
+                                )
+                            }
+
+                            Text("Толщина границы: ${config.borderWidthDp} dp", fontSize = 13.sp)
                             Slider(
                                 value = config.borderWidthDp.toFloat(),
                                 onValueChange = { config = config.copy(borderWidthDp = it.toInt()) },
-                                valueRange = 1f..12f,
+                                valueRange = 1f..10f,
                                 colors = SliderDefaults.colors(thumbColor = themeConfig.accentColor)
                             )
 
-                            Spacer(modifier = Modifier.height(4.dp))
                             Text("Скругление углов: ${config.cornerRadiusDp} dp", fontSize = 13.sp)
                             Slider(
                                 value = config.cornerRadiusDp.toFloat(),
                                 onValueChange = { config = config.copy(cornerRadiusDp = it.toInt()) },
-                                valueRange = 0f..48f,
+                                valueRange = 0f..40f,
                                 colors = SliderDefaults.colors(thumbColor = themeConfig.accentColor)
                             )
                         }

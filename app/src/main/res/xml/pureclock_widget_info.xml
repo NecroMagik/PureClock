@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:maxResizeWidth="500dp"
+    android:maxResizeHeight="400dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
     android:configure="com.necromagik.pureclock.widget.WidgetConfigActivity"
     android:initialLayout="@layout/widget_pure_clock"
-    android:minWidth="210dp"
-    android:minHeight="210dp"
-    android:resizeMode="horizontal|vertical"
-    android:targetCellWidth="3"
-    android:targetCellHeight="3"
-    android:updatePeriodMillis="0"
-    android:widgetCategory="home_screen"
-    android:widgetFeatures="reconfigurable" />
+    android:updatePeriodMillis="0" />

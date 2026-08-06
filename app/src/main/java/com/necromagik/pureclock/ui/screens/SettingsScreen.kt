@@ -1,5 +1,7 @@
 package com.necromagik.pureclock.ui.screens
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -9,18 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.HourglassBottom
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.TimerOff
-import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,16 +24,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.ClockStylePickerDialog
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
+import com.necromagik.pureclock.widget.WidgetConfigActivity
+import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import kotlinx.coroutines.launch
 
-// ============================================================================
-// ВЕРСИЯ ПРИЛОЖЕНИЯ (МЕНЯТЬ ЗДЕСЬ)
-// ============================================================================
 private const val APP_VERSION = "Pure_1.14"
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,13 +59,19 @@ private fun SettingsMainContent(
     val themeConfig = LocalPureClockConfig.current
     val coroutineScope = rememberCoroutineScope()
 
+    val activeWidgetIds = remember {
+        val appWidgetManager = AppWidgetManager.getInstance(context)
+        val componentName = ComponentName(context, PureClockWidgetProvider::class.java)
+        appWidgetManager.getAppWidgetIds(componentName)
+    }
+    val hasActiveWidget = activeWidgetIds.isNotEmpty()
+
     var showStyleDialog by remember { mutableStateOf(false) }
     var showSnoozeDialog by remember { mutableStateOf(false) }
     var showAutoDismissDialog by remember { mutableStateOf(false) }
     var showDismissMethodDialog by remember { mutableStateOf(false) }
     var showUpcomingNoticeDialog by remember { mutableStateOf(false) }
 
-    // Состояния проверки обновлений
     var isCheckingUpdates by remember { mutableStateOf(false) }
     var updateResult by remember { mutableStateOf<SettingsManager.UpdateChecker.ReleaseInfo?>(null) }
     var showNoUpdatesToast by remember { mutableStateOf(false) }
@@ -116,6 +113,26 @@ private fun SettingsMainContent(
                 )
             }
 
+            item {
+                SettingsClickCard(
+                    icon = Icons.Default.Widgets,
+                    title = "Конструктор виджета",
+                    subtitle = if (hasActiveWidget) {
+                        "Виджет активен (активных: ${activeWidgetIds.size})"
+                    } else {
+                        "Виджет не добавлен на рабочий стол"
+                    },
+                    onClick = {
+                        val targetWidgetId = if (hasActiveWidget) activeWidgetIds.first() else AppWidgetManager.INVALID_APPWIDGET_ID
+                        val intent = Intent(context, WidgetConfigActivity::class.java).apply {
+                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, targetWidgetId)
+                        }
+                        context.startActivity(intent)
+                    },
+                    iconTint = if (hasActiveWidget) themeConfig.accentColor else Color.Gray
+                )
+            }
+
             item { SettingsHeader("Будильник") }
             item {
                 SettingsSwitchCard(
@@ -123,7 +140,7 @@ private fun SettingsMainContent(
                     title = "Плавное нарастание громкости",
                     subtitle = "Громкость сигнала увеличивается постепенно",
                     isChecked = settingsManager.isVolumeRampEnabled,
-                    onCheckedChange = { checked -> settingsManager.isVolumeRampEnabled = checked }
+                    onCheckedChange = { checked: Boolean -> settingsManager.isVolumeRampEnabled = checked }
                 )
             }
             item {
@@ -175,7 +192,7 @@ private fun SettingsMainContent(
                     title = "24-часовой формат",
                     subtitle = if (settingsManager.is24HourFormat) "14:00" else "02:00 PM",
                     isChecked = settingsManager.is24HourFormat,
-                    onCheckedChange = { settingsManager.is24HourFormat = it }
+                    onCheckedChange = { checked: Boolean -> settingsManager.is24HourFormat = checked }
                 )
             }
             item {
@@ -192,7 +209,7 @@ private fun SettingsMainContent(
                     title = "Тактильный отклик",
                     subtitle = "Вибрация при вращении стрелки",
                     isChecked = settingsManager.isClockHapticsEnabled,
-                    onCheckedChange = { settingsManager.isClockHapticsEnabled = it }
+                    onCheckedChange = { checked: Boolean -> settingsManager.isClockHapticsEnabled = checked }
                 )
             }
 
@@ -203,7 +220,7 @@ private fun SettingsMainContent(
                     title = "Вибрация таймера",
                     subtitle = "Вибросигнал по окончании отсчета",
                     isChecked = settingsManager.isTimerVibrate,
-                    onCheckedChange = { checked -> settingsManager.isTimerVibrate = checked }
+                    onCheckedChange = { checked: Boolean -> settingsManager.isTimerVibrate = checked }
                 )
             }
             item {
@@ -212,7 +229,7 @@ private fun SettingsMainContent(
                     title = "Отклик кругов секундомера",
                     subtitle = "Вибрация при нажатии кнопки «Круг»",
                     isChecked = settingsManager.isStopwatchLapVibrate,
-                    onCheckedChange = { checked -> settingsManager.isStopwatchLapVibrate = checked }
+                    onCheckedChange = { checked: Boolean -> settingsManager.isStopwatchLapVibrate = checked }
                 )
             }
 
@@ -370,7 +387,7 @@ private fun SettingsMainContent(
         }
     }
 
-    // Диалог найденного обновления
+    // Диалоги
     updateResult?.let { release ->
         AlertDialog(
             onDismissRequest = { updateResult = null },
@@ -383,7 +400,7 @@ private fun SettingsMainContent(
             confirmButton = {
                 Button(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(release.downloadUrl))
+                        val intent = Intent(Intent.ACTION_VIEW, release.downloadUrl.toUri())
                         context.startActivity(intent)
                         updateResult = null
                     }
@@ -427,7 +444,7 @@ private fun SettingsMainContent(
             title = "Длительность повтора",
             options = listOf(5 to "5 минут", 10 to "10 минут", 15 to "15 минут", 20 to "20 минут"),
             selectedValue = settingsManager.defaultSnoozeTimeMinutes,
-            onSelect = { selected ->
+            onSelect = { selected: Int ->
                 showSnoozeDialog = false
                 settingsManager.defaultSnoozeTimeMinutes = selected
             },
@@ -440,7 +457,7 @@ private fun SettingsMainContent(
             title = "Автоотключение будильника",
             options = listOf(5 to "5 минут", 10 to "10 минут", 15 to "15 минут", 30 to "30 минут"),
             selectedValue = settingsManager.autoDismissMinutes,
-            onSelect = { selected ->
+            onSelect = { selected: Int ->
                 showAutoDismissDialog = false
                 settingsManager.autoDismissMinutes = selected
             },
@@ -458,7 +475,7 @@ private fun SettingsMainContent(
                 60 to "За 1 час"
             ),
             selectedValue = settingsManager.upcomingNotificationMinutes,
-            onSelect = { selected ->
+            onSelect = { selected: Int ->
                 showUpcomingNoticeDialog = false
                 settingsManager.upcomingNotificationMinutes = selected
             },
@@ -475,7 +492,7 @@ private fun SettingsMainContent(
                 "SHAKE" to "Встряхивание телефона"
             ),
             selectedValue = settingsManager.dismissMethod,
-            onSelect = { selected ->
+            onSelect = { selected: String ->
                 showDismissMethodDialog = false
                 settingsManager.dismissMethod = selected
             },
@@ -484,55 +501,7 @@ private fun SettingsMainContent(
     }
 }
 
-@Composable
-private fun <T> SingleChoiceDialog(
-    title: String,
-    options: List<Pair<T, String>>,
-    selectedValue: T,
-    onSelect: (T) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val accentColor = MaterialTheme.colorScheme.primary
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                options.forEach { (value, label) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onSelect(value)
-                            }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = (value == selectedValue),
-                            onClick = {
-                                onSelect(value)
-                            },
-                            colors = RadioButtonDefaults.colors(selectedColor = accentColor)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.bounceClick()) {
-                Text("Отмена", color = Color.Gray)
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(20.dp)
-    )
-}
-
+// Вспомогательные UI-компоненты
 @Composable
 private fun SettingsHeader(text: String) {
     Text(
@@ -645,4 +614,53 @@ private fun SettingsClickCard(
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
         }
     }
+}
+
+@Composable
+private fun <T> SingleChoiceDialog(
+    title: String,
+    options: List<Pair<T, String>>,
+    selectedValue: T,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val accentColor = MaterialTheme.colorScheme.primary
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                options.forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelect(value)
+                            }
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = (value == selectedValue),
+                            onClick = {
+                                onSelect(value)
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = accentColor)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.bounceClick()) {
+                Text("Отмена", color = Color.Gray)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp)
+    )
 }

@@ -1,12 +1,17 @@
 package com.necromagik.pureclock.widget
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.graphics.*
 import android.widget.RemoteViews
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.toColorInt
 import androidx.compose.ui.graphics.toArgb
 import com.necromagik.pureclock.R
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.model.*
+import com.necromagik.pureclock.MainActivity
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.cos
@@ -21,13 +26,27 @@ object WidgetRenderEngine {
         val views = RemoteViews(context.packageName, R.layout.widget_pure_clock)
         val bitmap = renderCustomWidgetBitmap(context, config)
         views.setImageViewBitmap(R.id.widget_image_container, bitmap)
+
+        val appIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            config.id,
+            appIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        views.setOnClickPendingIntent(R.id.widget_image_container, pendingIntent)
+
         return views
     }
 
     fun renderCustomWidgetBitmap(context: Context, config: WidgetConfig): Bitmap {
-        val width = 1000
-        val height = 600
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val width = 720
+        val height = 480
+        val bitmap = createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -37,18 +56,19 @@ object WidgetRenderEngine {
         val effectiveAccentColor = if (config.useAppTheme) {
             settings.getAccentColor(themeState.accentColorHex).toArgb()
         } else {
-            try { Color.parseColor(config.dateColorHex) } catch (_: Exception) { Color.parseColor("#EB0029") }
+            try { config.dateColorHex.toColorInt() } catch (_: Exception) { "#EB0029".toColorInt() }
         }
 
-        val primaryTextColor = try { Color.parseColor(config.timeColorHex) } catch (_: Exception) { Color.WHITE }
+        val primaryTextColor = try { config.timeColorHex.toColorInt() } catch (_: Exception) { Color.WHITE }
         val bgColor = if (config.useAppTheme && themeState.isPureMonocolor) Color.BLACK else {
-            try { Color.parseColor(config.backgroundColorHex) } catch (_: Exception) { Color.parseColor("#0B0B0B") }
+            try { config.backgroundColorHex.toColorInt() } catch (_: Exception) { "#0B0B0B".toColorInt() }
         }
 
-        val rect = RectF(20f, 20f, width - 20f, height - 20f)
+        val strokeInset = config.borderWidthDp.toFloat() / 2f + 8f
+        val rect = RectF(strokeInset, strokeInset, width - strokeInset, height - strokeInset)
         val radius = if (config.useAppTheme) themeState.cardCornerRadiusDp.toFloat() else config.cornerRadiusDp.toFloat()
 
-        // 1. Отрисовка фона (если включен)
+        // 1. Подложка
         if (config.showBackground) {
             val bgAlphaInt = (config.backgroundAlpha * 255).toInt()
             paint.color = Color.argb(bgAlphaInt, Color.red(bgColor), Color.green(bgColor), Color.blue(bgColor))
@@ -56,59 +76,148 @@ object WidgetRenderEngine {
             canvas.drawRoundRect(rect, radius, radius, paint)
         }
 
-        // 2. Отрисовка независимой границы (если включена)
+        // 2. Рамка
         if (config.showBorder) {
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = config.borderWidthDp.toFloat()
-            val borderColor = try { Color.parseColor(config.borderColorHex) } catch (_: Exception) { effectiveAccentColor }
-            paint.color = borderColor
-            canvas.drawRoundRect(rect, radius, radius, paint)
+            val borderColor = try { config.borderColorHex.toColorInt() } catch (_: Exception) { effectiveAccentColor }
+            val borderStrokeWidth = config.borderWidthDp.toFloat()
+            val halfStroke = borderStrokeWidth / 2f
+            val borderRect = RectF(
+                rect.left + halfStroke,
+                rect.top + halfStroke,
+                rect.right - halfStroke,
+                rect.bottom - halfStroke
+            )
+
+            if (config.enableBorderGlow) {
+                val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = borderStrokeWidth + 8f
+                    color = Color.argb(100, Color.red(borderColor), Color.green(borderColor), Color.blue(borderColor))
+                    maskFilter = BlurMaskFilter(16f, BlurMaskFilter.Blur.NORMAL)
+                }
+                canvas.drawRoundRect(borderRect, radius, radius, glowPaint)
+            }
+
+            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = borderStrokeWidth
+                color = borderColor
+            }
+
+            when (config.borderStyle) {
+                BorderStyle.DASHED -> {
+                    borderPaint.pathEffect = DashPathEffect(floatArrayOf(20f, 12f), 0f)
+                    canvas.drawRoundRect(borderRect, radius, radius, borderPaint)
+                }
+                BorderStyle.DOUBLE_LINE -> {
+                    canvas.drawRoundRect(borderRect, radius, radius, borderPaint)
+                    val doubleInset = borderStrokeWidth + 4f
+                    val innerRect = RectF(
+                        borderRect.left + doubleInset,
+                        borderRect.top + doubleInset,
+                        borderRect.right - doubleInset,
+                        borderRect.bottom - doubleInset
+                    )
+                    borderPaint.strokeWidth = (borderStrokeWidth * 0.6f).coerceAtLeast(1.5f)
+                    canvas.drawRoundRect(innerRect, (radius - doubleInset).coerceAtLeast(0f), (radius - doubleInset).coerceAtLeast(0f), borderPaint)
+                }
+                BorderStyle.SOLID -> {
+                    canvas.drawRoundRect(borderRect, radius, radius, borderPaint)
+                }
+            }
         }
 
         val cal = Calendar.getInstance()
         val pos = config.safePosition
 
-        var startY = when (pos) {
-            ClockPosition.TOP_LEFT, ClockPosition.TOP_CENTER, ClockPosition.TOP_RIGHT -> config.timeFontSizeSp * 1.1f + 20f
-            ClockPosition.CENTER_LEFT, ClockPosition.CENTER, ClockPosition.CENTER_RIGHT -> height * 0.45f
-            ClockPosition.BOTTOM_LEFT, ClockPosition.BOTTOM_CENTER, ClockPosition.BOTTOM_RIGHT -> height * 0.62f
-        }
-
-        // 3. Часы
-        if (config.safeDisplayMode == ClockDisplayMode.ANALOG) {
-            val analogRadius = config.timeFontSizeSp * 1.1f
-            val clockCenterX = when (pos) {
-                ClockPosition.TOP_LEFT, ClockPosition.CENTER_LEFT, ClockPosition.BOTTOM_LEFT -> analogRadius + 48f
-                ClockPosition.TOP_CENTER, ClockPosition.CENTER, ClockPosition.BOTTOM_CENTER -> width / 2f
-                ClockPosition.TOP_RIGHT, ClockPosition.CENTER_RIGHT, ClockPosition.BOTTOM_RIGHT -> width - analogRadius - 48f
+        val activeElements = config.safeElementOrder.filter { element ->
+            when (element) {
+                WidgetElementType.TIME -> true
+                WidgetElementType.DATE -> config.showDate
+                WidgetElementType.WEATHER -> config.showWeather
             }
-            drawAnalogClock(canvas, clockCenterX, startY, analogRadius, cal, config.safeAnalogStyle, effectiveAccentColor, primaryTextColor)
-            startY += analogRadius + 30f
-        } else {
-            drawDigitalClock(canvas, width, startY, pos, cal, config, effectiveAccentColor, primaryTextColor)
-            startY += config.timeFontSizeSp * 0.75f + 16f
         }
 
-        // 4. Дата и Погода
-        paint.style = Paint.Style.FILL
-
-        if (config.showDate) {
-            paint.color = effectiveAccentColor
-            paint.textSize = config.dateFontSizeSp.toFloat()
-            paint.typeface = if (config.isDateBold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            val dateStr = SimpleDateFormat("EEEE, d MMMM", Locale("ru")).format(cal.time).replaceFirstChar { it.uppercase() }
-            val xPos = getXForPosition(pos, width, paint.measureText(dateStr))
-            canvas.drawText(dateStr, xPos, startY, paint)
-            startY += config.dateFontSizeSp + 14f
+        val elementHeights = activeElements.map { element ->
+            when (element) {
+                WidgetElementType.TIME -> {
+                    if (config.safeDisplayMode == ClockDisplayMode.ANALOG) {
+                        config.timeFontSizeSp * 1.8f
+                    } else {
+                        val p = Paint().apply { textSize = config.timeFontSizeSp.toFloat(); typeface = Typeface.DEFAULT_BOLD }
+                        val fm = p.fontMetrics
+                        (fm.descent - fm.ascent)
+                    }
+                }
+                WidgetElementType.DATE -> {
+                    val p = Paint().apply { textSize = config.dateFontSizeSp.toFloat() }
+                    val fm = p.fontMetrics
+                    (fm.descent - fm.ascent)
+                }
+                WidgetElementType.WEATHER -> {
+                    val p = Paint().apply { textSize = config.weatherFontSizeSp.toFloat() }
+                    val fm = p.fontMetrics
+                    (fm.descent - fm.ascent)
+                }
+            }
         }
 
-        if (config.showWeather) {
-            paint.color = try { Color.parseColor(config.weatherColorHex) } catch (_: Exception) { Color.LTGRAY }
-            paint.textSize = config.weatherFontSizeSp.toFloat()
-            paint.typeface = Typeface.DEFAULT
-            val weatherStr = "🌤️ +22°C • Ясно"
-            val xPos = getXForPosition(pos, width, paint.measureText(weatherStr))
-            canvas.drawText(weatherStr, xPos, startY, paint)
+        val itemSpacing = 12f
+        val totalBlockHeight = elementHeights.sum() + (activeElements.size - 1).coerceAtLeast(0) * itemSpacing
+
+        var currentTopY = when (pos) {
+            ClockPosition.TOP_LEFT, ClockPosition.TOP_CENTER, ClockPosition.TOP_RIGHT -> 32f
+            ClockPosition.CENTER_LEFT, ClockPosition.CENTER, ClockPosition.CENTER_RIGHT -> (height - totalBlockHeight) / 2f
+            ClockPosition.BOTTOM_LEFT, ClockPosition.BOTTOM_CENTER, ClockPosition.BOTTOM_RIGHT -> height - totalBlockHeight - 32f
+        }
+
+        activeElements.forEachIndexed { index, element ->
+            val elementH = elementHeights[index]
+
+            when (element) {
+                WidgetElementType.TIME -> {
+                    if (config.safeDisplayMode == ClockDisplayMode.ANALOG) {
+                        val analogRadius = elementH / 2f
+                        val centerY = currentTopY + analogRadius
+                        val clockCenterX = getXForWidth(pos, width, analogRadius * 2f) + analogRadius
+                        drawAnalogClock(canvas, clockCenterX, centerY, analogRadius * 0.9f, cal, config.safeAnalogStyle, effectiveAccentColor, primaryTextColor)
+                    } else {
+                        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            textSize = config.timeFontSizeSp.toFloat()
+                            typeface = Typeface.DEFAULT_BOLD
+                        }
+                        val fm = textPaint.fontMetrics
+                        val baselineY = currentTopY - fm.ascent
+                        drawDigitalClock(canvas, textPaint, width, baselineY, pos, cal, config, effectiveAccentColor, primaryTextColor)
+                    }
+                }
+                WidgetElementType.DATE -> {
+                    val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = effectiveAccentColor
+                        textSize = config.dateFontSizeSp.toFloat()
+                        typeface = if (config.isDateBold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    }
+                    val fm = datePaint.fontMetrics
+                    val baselineY = currentTopY - fm.ascent
+                    val dateStr = SimpleDateFormat("EEEE, d MMMM", Locale.forLanguageTag("ru")).format(cal.time).replaceFirstChar { it.uppercase() }
+                    val xPos = getXForWidth(pos, width, datePaint.measureText(dateStr))
+                    canvas.drawText(dateStr, xPos, baselineY, datePaint)
+                }
+                WidgetElementType.WEATHER -> {
+                    val weatherPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = try { config.weatherColorHex.toColorInt() } catch (_: Exception) { Color.LTGRAY }
+                        textSize = config.weatherFontSizeSp.toFloat()
+                        typeface = Typeface.DEFAULT
+                    }
+                    val fm = weatherPaint.fontMetrics
+                    val baselineY = currentTopY - fm.ascent
+                    val weatherStr = "🌤️ +22°C • Ясно"
+                    val xPos = getXForWidth(pos, width, weatherPaint.measureText(weatherStr))
+                    canvas.drawText(weatherStr, xPos, baselineY, weatherPaint)
+                }
+            }
+
+            currentTopY += elementH + itemSpacing
         }
 
         return bitmap
@@ -116,19 +225,15 @@ object WidgetRenderEngine {
 
     private fun drawDigitalClock(
         canvas: Canvas,
+        paint: Paint,
         width: Int,
-        startY: Float,
+        baselineY: Float,
         pos: ClockPosition,
         cal: Calendar,
         config: WidgetConfig,
         accentColor: Int,
         textColor: Int
     ) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = config.timeFontSizeSp.toFloat()
-            style = Paint.Style.FILL
-        }
-
         val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(cal.time)
 
         when (config.safeDigitalStyle) {
@@ -136,46 +241,38 @@ object WidgetRenderEngine {
                 if (timeStr.isNotEmpty()) {
                     val firstChar = timeStr.substring(0, 1)
                     val restStr = timeStr.substring(1)
-                    paint.typeface = Typeface.DEFAULT_BOLD
                     val totalWidth = paint.measureText(timeStr)
-                    var xPos = getXForPosition(pos, width, totalWidth)
+                    var xPos = getXForWidth(pos, width, totalWidth)
 
                     paint.color = accentColor
-                    canvas.drawText(firstChar, xPos, startY, paint)
+                    canvas.drawText(firstChar, xPos, baselineY, paint)
                     xPos += paint.measureText(firstChar)
 
                     paint.color = textColor
-                    canvas.drawText(restStr, xPos, startY, paint)
+                    canvas.drawText(restStr, xPos, baselineY, paint)
                 }
             }
             DigitalStyleType.STACK_TWO_LINE -> {
-                paint.typeface = Typeface.DEFAULT_BOLD
                 val hourStr = SimpleDateFormat("HH", Locale.getDefault()).format(cal.time)
                 val minStr = SimpleDateFormat("mm", Locale.getDefault()).format(cal.time)
 
                 paint.color = accentColor
-                canvas.drawText(hourStr, getXForPosition(pos, width, paint.measureText(hourStr)), startY - config.timeFontSizeSp * 0.4f, paint)
+                canvas.drawText(hourStr, getXForWidth(pos, width, paint.measureText(hourStr)), baselineY - config.timeFontSizeSp * 0.3f, paint)
                 paint.color = textColor
-                canvas.drawText(minStr, getXForPosition(pos, width, paint.measureText(minStr)), startY + config.timeFontSizeSp * 0.5f, paint)
+                canvas.drawText(minStr, getXForWidth(pos, width, paint.measureText(minStr)), baselineY + config.timeFontSizeSp * 0.5f, paint)
             }
-            DigitalStyleType.LED_3D_SEGMENT -> {
-                paint.typeface = Typeface.MONOSPACE
-                paint.color = accentColor
-                val xPos = getXForPosition(pos, width, paint.measureText(timeStr))
-                canvas.drawText(timeStr, xPos, startY, paint)
-            }
-            DigitalStyleType.CYBER_CONSOLE -> {
+            DigitalStyleType.LED_3D_SEGMENT, DigitalStyleType.CYBER_CONSOLE -> {
                 paint.typeface = Typeface.MONOSPACE
                 paint.color = textColor
-                val cyberStr = "[$timeStr]"
-                val xPos = getXForPosition(pos, width, paint.measureText(cyberStr))
-                canvas.drawText(cyberStr, xPos, startY, paint)
+                val str = if (config.safeDigitalStyle == DigitalStyleType.CYBER_CONSOLE) "[$timeStr]" else timeStr
+                val xPos = getXForWidth(pos, width, paint.measureText(str))
+                canvas.drawText(str, xPos, baselineY, paint)
             }
             DigitalStyleType.TYPO_LARGE_MINIMAL -> {
                 paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
                 paint.color = textColor
-                val xPos = getXForPosition(pos, width, paint.measureText(timeStr))
-                canvas.drawText(timeStr, xPos, startY, paint)
+                val xPos = getXForWidth(pos, width, paint.measureText(timeStr))
+                canvas.drawText(timeStr, xPos, baselineY, paint)
             }
         }
     }
@@ -186,94 +283,55 @@ object WidgetRenderEngine {
         cy: Float,
         radius: Float,
         cal: Calendar,
-        style: AnalogStyleType,
+        clockStyle: AnalogStyleType,
         accentColor: Int,
         textColor: Int
     ) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = textColor
+            style = Paint.Style.STROKE
+        }
         val hours = cal.get(Calendar.HOUR)
         val minutes = cal.get(Calendar.MINUTE)
 
-        paint.color = textColor
-        paint.style = Paint.Style.STROKE
-
-        when (style) {
+        when (clockStyle) {
             AnalogStyleType.OXYGEN_NEVER_SETTLE -> {
-                paint.strokeWidth = radius * 0.05f
-                for (i in 0 until 12) {
-                    val angle = Math.toRadians((i * 30).toDouble())
-                    val startX = (cx + (radius * 0.82f) * sin(angle)).toFloat()
-                    val startY = (cy - (radius * 0.82f) * cos(angle)).toFloat()
-                    val endX = (cx + radius * sin(angle)).toFloat()
-                    val endY = (cy - radius * cos(angle)).toFloat()
-                    paint.color = if (i == 0) accentColor else textColor
-                    canvas.drawLine(startX, startY, endX, endY, paint)
-                }
-            }
-            AnalogStyleType.CLASSIC_INDEXES -> {
-                paint.strokeWidth = radius * 0.04f
-                canvas.drawCircle(cx, cy, radius, paint)
-                paint.style = Paint.Style.FILL
-                paint.textSize = radius * 0.3f
-                paint.typeface = Typeface.DEFAULT_BOLD
-                canvas.drawText("12", cx - radius * 0.12f, cy - radius * 0.65f, paint)
-                canvas.drawText("6", cx - radius * 0.05f, cy + radius * 0.85f, paint)
-                canvas.drawText("3", cx + radius * 0.7f, cy + radius * 0.1f, paint)
-                canvas.drawText("9", cx - radius * 0.85f, cy + radius * 0.1f, paint)
-                paint.style = Paint.Style.STROKE
-            }
-            AnalogStyleType.CHRONO_SPORT -> {
-                paint.strokeWidth = radius * 0.03f
-                for (i in 0 until 60) {
-                    val angle = Math.toRadians((i * 6).toDouble())
-                    val len = if (i % 5 == 0) radius * 0.2f else radius * 0.08f
-                    val startX = (cx + (radius - len) * sin(angle)).toFloat()
-                    val startY = (cy - (radius - len) * cos(angle)).toFloat()
-                    val endX = (cx + radius * sin(angle)).toFloat()
-                    val endY = (cy - radius * cos(angle)).toFloat()
-                    paint.color = if (i % 15 == 0) accentColor else textColor
-                    canvas.drawLine(startX, startY, endX, endY, paint)
-                }
-            }
-            AnalogStyleType.BAUHAUS_MINIMAL -> {
                 paint.strokeWidth = radius * 0.06f
-                paint.color = textColor
-                canvas.drawCircle(cx, cy, radius, paint)
-            }
-            AnalogStyleType.ZEN_SPACE_DOTS -> {
-                paint.style = Paint.Style.FILL
                 for (i in 0 until 12) {
                     val angle = Math.toRadians((i * 30).toDouble())
-                    val dotX = (cx + radius * sin(angle)).toFloat()
-                    val dotY = (cy - radius * cos(angle)).toFloat()
+                    val startX = (cx + (radius * 0.8f) * sin(angle)).toFloat()
+                    val startY = (cy - (radius * 0.8f) * cos(angle)).toFloat()
+                    val endX = (cx + radius * sin(angle)).toFloat()
+                    val endY = (cy - radius * cos(angle)).toFloat()
                     paint.color = if (i == 0) accentColor else textColor
-                    canvas.drawCircle(dotX, dotY, radius * 0.06f, paint)
+                    canvas.drawLine(startX, startY, endX, endY, paint)
                 }
-                paint.style = Paint.Style.STROKE
+            }
+            else -> {
+                paint.strokeWidth = radius * 0.05f
+                canvas.drawCircle(cx, cy, radius, paint)
             }
         }
 
-        // Стрелки
         val hourAngle = Math.toRadians(((hours + minutes / 60f) * 30).toDouble())
         paint.color = textColor
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = radius * 0.08f
+        paint.strokeWidth = radius * 0.09f
         canvas.drawLine(cx, cy, (cx + radius * 0.5f * sin(hourAngle)).toFloat(), (cy - radius * 0.5f * cos(hourAngle)).toFloat(), paint)
 
         val minuteAngle = Math.toRadians((minutes * 6).toDouble())
         paint.color = accentColor
-        paint.strokeWidth = radius * 0.05f
+        paint.strokeWidth = radius * 0.06f
         canvas.drawLine(cx, cy, (cx + radius * 0.78f * sin(minuteAngle)).toFloat(), (cy - radius * 0.78f * cos(minuteAngle)).toFloat(), paint)
 
         paint.style = Paint.Style.FILL
         canvas.drawCircle(cx, cy, radius * 0.08f, paint)
     }
 
-    private fun getXForPosition(pos: ClockPosition, width: Int, textWidth: Float): Float {
+    private fun getXForWidth(pos: ClockPosition, width: Int, totalWidth: Float): Float {
         return when (pos) {
-            ClockPosition.TOP_LEFT, ClockPosition.CENTER_LEFT, ClockPosition.BOTTOM_LEFT -> 48f
-            ClockPosition.TOP_CENTER, ClockPosition.CENTER, ClockPosition.BOTTOM_CENTER -> (width - textWidth) / 2f
-            ClockPosition.TOP_RIGHT, ClockPosition.CENTER_RIGHT, ClockPosition.BOTTOM_RIGHT -> width - textWidth - 48f
+            ClockPosition.TOP_LEFT, ClockPosition.CENTER_LEFT, ClockPosition.BOTTOM_LEFT -> 40f
+            ClockPosition.TOP_CENTER, ClockPosition.CENTER, ClockPosition.BOTTOM_CENTER -> (width - totalWidth) / 2f
+            ClockPosition.TOP_RIGHT, ClockPosition.CENTER_RIGHT, ClockPosition.BOTTOM_RIGHT -> width - totalWidth - 40f
         }
     }
 }

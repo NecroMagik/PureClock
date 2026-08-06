@@ -2,6 +2,7 @@ package com.necromagik.pureclock.widget
 
 import android.app.Activity
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -25,13 +26,10 @@ class WidgetConfigActivity : ComponentActivity() {
             AppWidgetManager.INVALID_APPWIDGET_ID
         ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
 
-        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
-            finish()
-            return
-        }
-
         val repo = WidgetConfigRepository(this)
-        val initialConfig = repo.getConfig(appWidgetId)
+        val targetWidgetId = if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) appWidgetId else 0
+        val savedConfig = repo.getConfig(targetWidgetId)
+
         val settings = SettingsManager.getInstance(this)
         val themeState = settings.themeState.value
 
@@ -46,17 +44,27 @@ class WidgetConfigActivity : ComponentActivity() {
                 depthIntensityDp = themeState.depthIntensityDp
             ) {
                 WidgetEditorScreen(
-                    initialConfig = initialConfig,
+                    initialConfig = savedConfig,
                     onBackClick = { finish() },
                     onSaveConfig = { updatedConfig ->
-                        repo.saveConfig(appWidgetId, updatedConfig)
+                        repo.saveConfig(targetWidgetId, updatedConfig)
 
                         val appWidgetManager = AppWidgetManager.getInstance(this)
                         val views = WidgetRenderEngine.buildCustomRemoteViews(this, updatedConfig)
-                        appWidgetManager.updateAppWidget(appWidgetId, views)
 
-                        val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                        setResult(Activity.RESULT_OK, resultValue)
+                        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                            appWidgetManager.updateAppWidget(appWidgetId, views)
+                            val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                            setResult(Activity.RESULT_OK, resultValue)
+                        } else {
+                            val allWidgetIds = appWidgetManager.getAppWidgetIds(
+                                ComponentName(this, PureClockWidgetProvider::class.java)
+                            )
+                            for (id in allWidgetIds) {
+                                repo.saveConfig(id, updatedConfig)
+                                appWidgetManager.updateAppWidget(id, views)
+                            }
+                        }
                         finish()
                     }
                 )

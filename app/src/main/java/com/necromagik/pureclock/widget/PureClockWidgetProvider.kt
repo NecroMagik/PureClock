@@ -7,7 +7,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import com.necromagik.pureclock.R
 import com.necromagik.pureclock.data.repository.WidgetConfigRepository
 
@@ -18,10 +17,12 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        for (widgetId in appWidgetIds) {
-            updateSingleWidget(context, appWidgetManager, widgetId)
+        val repo = WidgetConfigRepository(context)
+        for (appWidgetId in appWidgetIds) {
+            val config = repo.getConfig(appWidgetId)
+            val views = WidgetRenderEngine.buildCustomRemoteViews(context, config)
+            appWidgetManager.updateAppWidget(appWidgetId, views)
         }
-        scheduleWidgetUpdates(context)
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -58,7 +59,6 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         val repo = WidgetConfigRepository(context)
         val config = repo.getConfig(widgetId)
 
-        // Тап по виджету откроет его повторное редактирование
         val configIntent = Intent(context, WidgetConfigActivity::class.java).apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -89,11 +89,7 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         )
 
         val nextTick = (System.currentTimeMillis() / 60000L + 1) * 60000L
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC, nextTick, pendingIntent)
-        } else {
-            alarmManager.setExact(AlarmManager.RTC, nextTick, pendingIntent)
-        }
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC, nextTick, pendingIntent)
     }
 
     companion object {
