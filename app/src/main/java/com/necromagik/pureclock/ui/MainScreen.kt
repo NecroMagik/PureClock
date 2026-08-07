@@ -14,7 +14,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -22,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,12 +37,14 @@ import com.necromagik.pureclock.ui.components.Pure3DIcon
 import com.necromagik.pureclock.ui.screens.AddEditAlarmScreen
 import com.necromagik.pureclock.ui.screens.AlarmListScreen
 import com.necromagik.pureclock.ui.screens.SettingsScreen
+import com.necromagik.pureclock.ui.screens.StopwatchScreen
 import com.necromagik.pureclock.ui.screens.TimerScreen
 import com.necromagik.pureclock.ui.screens.WorldClockScreen
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.ThemeEngineScreen
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.ui.viewmodel.AlarmViewModel
+import com.necromagik.pureclock.ui.viewmodel.StopwatchViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
 import kotlinx.coroutines.launch
 import java.time.ZoneId
@@ -63,6 +68,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
     var currentRoute by remember { mutableStateOf(ScreenRoute.MAIN) }
 
     val timerViewModel: TimerViewModel = viewModel()
+    val stopwatchViewModel: StopwatchViewModel = viewModel()
     val pagerState = rememberPagerState(initialPage = 0) { ClockTab.entries.size }
     val coroutineScope = rememberCoroutineScope()
     val themeConfig = LocalPureClockConfig.current
@@ -73,8 +79,8 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
     var onTimerAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    val isStopwatchRunning by remember { mutableStateOf(false) }
-    val onStopwatchAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val isStopwatchRunning by stopwatchViewModel.isRunning.collectAsState()
+    val stopwatchElapsed by stopwatchViewModel.elapsedMillis.collectAsState()
 
     val alarms by viewModel.alarms.collectAsState()
 
@@ -274,11 +280,58 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                     )
 
                                     val currentTab = ClockTab.entries[pagerState.currentPage]
+                                    val isStopwatchTab = currentTab == ClockTab.STOPWATCH
+
+                                    // ЛЕВАЯ КНОПКА: СБРОС (по диагонали влево-вверх под 45°)
+                                    AnimatedVisibility(
+                                        visible = isStopwatchTab && (stopwatchElapsed > 0 && !isStopwatchRunning),
+                                        enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
+                                                slideInHorizontally(initialOffsetX = { it }) +
+                                                slideInVertically(initialOffsetY = { it }),
+                                        exit = scaleOut() + slideOutHorizontally(targetOffsetX = { it }) + slideOutVertically(targetOffsetY = { it }),
+                                        modifier = Modifier.offset(x = (-52).dp, y = (-98).dp)
+                                    ) {
+                                        SmallFloatingActionButton(
+                                            onClick = { stopwatchViewModel.reset() },
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = Color.Gray,
+                                            shape = CircleShape,
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .bounceClick()
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Сброс")
+                                        }
+                                    }
+
+                                    // ПРАВАЯ КНОПКА: ОТСЕЧКА КРУГА (по диагонали вправо-вверх под 45°)
+                                    AnimatedVisibility(
+                                        visible = isStopwatchTab && isStopwatchRunning,
+                                        enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
+                                                slideInHorizontally(initialOffsetX = { -it }) +
+                                                slideInVertically(initialOffsetY = { it }),
+                                        exit = scaleOut() + slideOutHorizontally(targetOffsetX = { -it }) + slideOutVertically(targetOffsetY = { it }),
+                                        modifier = Modifier.offset(x = 52.dp, y = (-98).dp)
+                                    ) {
+                                        SmallFloatingActionButton(
+                                            onClick = { stopwatchViewModel.recordLap() },
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = themeConfig.accentColor,
+                                            shape = CircleShape,
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .bounceClick()
+                                        ) {
+                                            Icon(Icons.Default.Flag, contentDescription = "Отсечка")
+                                        }
+                                    }
+
+                                    // ЦЕНТРАЛЬНАЯ КНОПКА FAB
                                     val fabIcon = when (currentTab) {
                                         ClockTab.ALARM -> Icons.Default.Add
                                         ClockTab.WORLD_CLOCK -> Icons.Default.Search
                                         ClockTab.TIMER -> Icons.Default.HourglassEmpty
-                                        ClockTab.STOPWATCH -> if (isStopwatchRunning) Icons.Default.Flag else Icons.Default.PlayArrow
+                                        ClockTab.STOPWATCH -> if (isStopwatchRunning) Icons.Default.Pause else Icons.Default.PlayArrow
                                     }
 
                                     FloatingActionButton(
@@ -287,7 +340,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                 ClockTab.ALARM -> isAddingAlarm = true
                                                 ClockTab.WORLD_CLOCK -> showAddCityDialog = true
                                                 ClockTab.TIMER -> onTimerAction?.invoke()
-                                                ClockTab.STOPWATCH -> onStopwatchAction?.invoke()
+                                                ClockTab.STOPWATCH -> stopwatchViewModel.toggleStartPause()
                                             }
                                         },
                                         containerColor = MaterialTheme.colorScheme.primary,
@@ -350,7 +403,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         }
 
                                         ClockTab.STOPWATCH -> {
-                                            UnderDevelopmentPlaceholder()
+                                            StopwatchScreen(stopwatchViewModel = stopwatchViewModel)
                                         }
                                     }
                                 }
@@ -360,21 +413,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun UnderDevelopmentPlaceholder() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "В разработке",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 

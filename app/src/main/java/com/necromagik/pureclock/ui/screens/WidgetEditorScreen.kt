@@ -48,7 +48,7 @@ fun WidgetEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Конструктор виджета 3×2", fontWeight = FontWeight.Bold) },
+                title = { Text("Конструктор виджета", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick, modifier = Modifier.bounceClick()) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
