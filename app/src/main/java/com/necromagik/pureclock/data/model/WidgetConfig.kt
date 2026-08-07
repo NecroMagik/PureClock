@@ -1,13 +1,16 @@
 package com.necromagik.pureclock.data.model
 
+import androidx.annotation.Keep
 import com.google.gson.annotations.SerializedName
 
+@Keep
 enum class ClockPosition {
     TOP_LEFT,    TOP_CENTER,    TOP_RIGHT,
     CENTER_LEFT, CENTER,        CENTER_RIGHT,
     BOTTOM_LEFT, BOTTOM_CENTER, BOTTOM_RIGHT
 }
 
+@Keep
 enum class AnalogStyleType {
     OXYGEN_NEVER_SETTLE,
     CLASSIC_INDEXES,
@@ -16,6 +19,7 @@ enum class AnalogStyleType {
     ZEN_SPACE_DOTS
 }
 
+@Keep
 enum class DigitalStyleType {
     OXYGEN_BOLD_FLUID,
     STACK_TWO_LINE,
@@ -24,20 +28,24 @@ enum class DigitalStyleType {
     TYPO_LARGE_MINIMAL
 }
 
+@Keep
 enum class ClockDisplayMode { ANALOG, DIGITAL }
 
+@Keep
 enum class WidgetElementType {
     TIME,
     DATE,
     WEATHER
 }
 
+@Keep
 enum class BorderStyle {
     SOLID,
     DASHED,
     DOUBLE_LINE
 }
 
+@Keep
 data class WidgetConfig(
     val id: Int,
     val useAppTheme: Boolean = true,
@@ -60,7 +68,7 @@ data class WidgetConfig(
     // 2. Дата
     val showDate: Boolean = true,
     val dateFontSizeSp: Int = 24,
-    @SerializedName("dateColorHex") val dateColorHexNullable: String? = "#EB0029",
+    @SerializedName("dateColorHex") val dateColorHexNullable: String? = null,
     val isDateBold: Boolean = true,
 
     // 3. Погода
@@ -76,7 +84,7 @@ data class WidgetConfig(
     // 5. Контурная рамка
     val showBorder: Boolean = true,
     val borderStyle: BorderStyle = BorderStyle.SOLID,
-    @SerializedName("borderColorHex") val borderColorHexNullable: String? = "#EB0029",
+    @SerializedName("borderColorHex") val borderColorHexNullable: String? = null,
     val borderWidthDp: Int = 3,
     val cornerRadiusDp: Int = 20,
     val enableBorderGlow: Boolean = true
@@ -86,6 +94,9 @@ data class WidgetConfig(
     val weatherColorHex: String get() = weatherColorHexNullable ?: "#CCCCCC"
     val backgroundColorHex: String get() = backgroundColorHexNullable ?: "#0B0B0B"
     val borderColorHex: String get() = borderColorHexNullable ?: "#EB0029"
+
+    fun getDateColorOrDefault(defaultAccentHex: String): String = dateColorHexNullable ?: defaultAccentHex
+    fun getBorderColorOrDefault(defaultAccentHex: String): String = borderColorHexNullable ?: defaultAccentHex
 
     val safeDigitalStyle: DigitalStyleType get() = digitalStyle
     val safeAnalogStyle: AnalogStyleType get() = analogStyle

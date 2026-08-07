@@ -149,16 +149,11 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
     private fun wakeUpDeviceAndShowOverLockscreen() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
-            "PureClock:AlarmAlertWakeLock"
-        ).apply {
-            acquire(10 * 60 * 1000L)
-        }
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
-            "PureClock:AlarmAlertWakeLock"
-        ).apply {
+
+        @Suppress("DEPRECATION")
+        val wakeLockFlags = PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE
+
+        wakeLock = powerManager.newWakeLock(wakeLockFlags, "PureClock:AlarmAlertWakeLock").apply {
             acquire(10 * 60 * 1000L) // 10 минут
         }
 
@@ -168,13 +163,17 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
             val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
             keyguardManager.requestDismissKeyguard(this, null)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
         }
 
         window.addFlags(
-            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                     WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
         )
     }
