@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Разрешения -->
+    <!-- Базовые разрешения -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
     <uses-permission
@@ -15,6 +15,7 @@
         tools:ignore="UseExactAlarm" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE"
         tools:ignore="ForegroundServicesDecl" />
@@ -25,6 +26,8 @@
 
     <application
         android:allowBackup="true"
+        android:defaultToDeviceProtectedStorage="true"
+        android:directBootAware="true"
         android:icon="@mipmap/ic_launcher"
         android:label="PureClock"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -34,14 +37,24 @@
         <!-- Главное окно -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="assetsPaths|keyboardHidden|orientation|screenSize"
+            android:directBootAware="true"
             android:enabled="true"
             android:exported="true"
             android:launchMode="singleTop"
-            android:screenOrientation="unspecified"
-            android:theme="@style/Theme.PureClock" />
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.PureClock"
+            tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
+        <!-- Псевдоним и фильтр для статус-бара OriginOS и вызова системного будильника -->
         <activity-alias
             android:name=".MainActivityAliasDefault"
+            android:directBootAware="true"
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
@@ -49,46 +62,50 @@
             android:roundIcon="@mipmap/ic_launcher_round"
             android:targetActivity=".MainActivity">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
-            <intent-filter>
                 <action android:name="android.intent.action.SHOW_ALARMS" />
                 <action android:name="android.intent.action.SET_ALARM" />
+                <action android:name="android.intent.action.SHOW_TIMERS" />
+                <action android:name="android.intent.action.SET_TIMER" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity-alias>
 
-        <!-- Экран конфигуратора виджета -->
+        <!-- Редактор виджетов -->
         <activity
             android:name=".widget.WidgetConfigActivity"
+            android:directBootAware="true"
             android:exported="true"
-            android:screenOrientation="unspecified"
-            android:theme="@style/Theme.PureClock">
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.PureClock"
+            tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
 
-        <!-- Экран будильника -->
+        <!-- Экран срабатывания будильника поверх заблокированного экрана -->
         <activity
             android:name=".alarm.AlarmAlertActivity"
+            android:configChanges="mcc|mnc|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize"
+            android:directBootAware="true"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleInstance"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
-            android:turnScreenOn="true" />
+            android:turnScreenOn="true"
+            tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity" />
 
-        <!-- Фоновые службы -->
+        <!-- Фоновые службы с поддержкой DirectBoot -->
         <service
             android:name=".alarm.AlarmService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="specialUse|mediaPlayback" />
         <service
             android:name=".alarm.TimerService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="specialUse|mediaPlayback" />
 
@@ -96,8 +113,10 @@
             android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
             android:value="Alarm Clock Notification Service" />
 
+        <!-- Приемник тиков времени -->
         <receiver
             android:name=".alarm.AlarmReceiver"
+            android:directBootAware="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.TIME_TICK" />
@@ -105,11 +124,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Высокоприоритетный ресивер автозапуска и инициализации -->
         <receiver
             android:name=".alarm.BootReceiver"
+            android:directBootAware="true"
             android:exported="true">
-            <intent-filter>
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
@@ -118,17 +142,17 @@
 
         <receiver
             android:name=".alarm.TimerReceiver"
+            android:directBootAware="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.necromagik.pureclock.ACTION_TIMER_ALARM" />
             </intent-filter>
         </receiver>
 
-        <!-- ================================================================= -->
-        <!-- ЕДИНЫЙ НАСТРАИВАЕМЫЙ ВИДЖЕТ PURECLOCK                              -->
-        <!-- ================================================================= -->
+        <!-- Виджет -->
         <receiver
             android:name=".widget.PureClockWidgetProvider"
+            android:directBootAware="true"
             android:exported="true"
             android:label="PureClock: Конструктор Виджета">
             <intent-filter>
@@ -142,5 +166,4 @@
         </receiver>
 
     </application>
-
 </manifest>

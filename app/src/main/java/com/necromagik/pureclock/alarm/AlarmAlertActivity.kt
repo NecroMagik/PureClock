@@ -57,6 +57,7 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     private var lastShakeTime: Long = 0
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,24 +95,22 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     private fun playTimerSoundAndVibration() {
         val settings = SettingsManager.getInstance(this)
 
-        // Звуковое сопровождение
         try {
             val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             ringtone = RingtoneManager.getRingtone(applicationContext, alertUri)?.apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            }
+                    audioAttributes = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                }
                 play()
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
 
-        // Вибрация
         if (settings.isTimerVibrate) {
             vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
@@ -149,6 +148,20 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun wakeUpDeviceAndShowOverLockscreen() {
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+            "PureClock:AlarmAlertWakeLock"
+        ).apply {
+            acquire(10 * 60 * 1000L)
+        }
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+            "PureClock:AlarmAlertWakeLock"
+        ).apply {
+            acquire(10 * 60 * 1000L) // 10 минут
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -188,6 +201,9 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     override fun onDestroy() {
         sensorManager?.unregisterListener(this)
         stopMediaAndVibration()
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
         super.onDestroy()
     }
 
@@ -200,6 +216,11 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
     private fun stopAlarmAndExit() {
         stopMediaAndVibration()
+
+        // Снимаем полноэкранное уведомление таймера
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        notificationManager.cancel(2003)
+
         val intent = Intent(this, AlarmService::class.java)
         stopService(intent)
         TimerService.stopService(this)

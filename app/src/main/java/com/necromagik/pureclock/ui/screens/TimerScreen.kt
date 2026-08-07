@@ -9,9 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -39,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.animation.breathingGlow
 import com.necromagik.pureclock.ui.animation.staggeredEntrance
+import com.necromagik.pureclock.ui.components.EmptyTimerState
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.ui.viewmodel.TimerItem
@@ -70,7 +68,6 @@ fun TimerScreen(
     val viewMode by timerViewModel.viewMode.collectAsState()
     var showBottomSheet by remember { mutableStateOf(false) }
 
-    // Передаем действие открытия панели взвода в FAB на MainScreen
     LaunchedEffect(Unit) {
         onTimerStateChanged(false) {
             showBottomSheet = true
@@ -107,86 +104,113 @@ fun TimerScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // ШАПКА ПЕРЕКЛЮЧЕНИЯ
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "АКТИВНЫЕ ТАЙМЕРЫ (${timersList.size})",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray
-            )
-
-            IconButton(
-                onClick = { timerViewModel.toggleViewMode() },
-                modifier = Modifier.bounceClick()
+    AnimatedContent(
+        targetState = timersList.isEmpty(),
+        transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(300)) },
+        label = "TimerEmptyStateTransition"
+    ) { isEmpty ->
+        if (isEmpty) {
+            EmptyTimerState(onAddTimerClick = { showBottomSheet = true })
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(
-                    imageVector = if (viewMode == TimerViewMode.CAROUSEL) Icons.Default.GridView else Icons.Default.ViewDay,
-                    contentDescription = "Режим отображения",
-                    tint = accentColor
-                )
-            }
-        }
-
-        // АНИМИРОВАННЫЙ ПЕРЕХОД СЕТКА - СПИСОК (Аналогично AlarmListScreen)
-        AnimatedContent(
-            targetState = viewMode == TimerViewMode.CAROUSEL,
-            transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
-            label = "TimerViewModeTransition"
-        ) { isTileView ->
-            if (isTileView) {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                // ШАПКА ПЕРЕКЛЮЧЕНИЯ
+                Row(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
-                        Box(modifier = Modifier.staggeredEntrance(index = index)) {
-                            TimerTileCard(
-                                item = item,
-                                canDelete = timersList.size > 1,
-                                accentColor = accentColor,
-                                themeConfig = themeConfig,
-                                onToggle = { timerViewModel.toggleSingleTimer(item.id) },
-                                onReset = { timerViewModel.resetSingleTimer(item.id) },
-                                onDelete = { timerViewModel.deleteTimer(item.id) }
-                            )
-                        }
+                    Text(
+                        text = "АКТИВНЫЕ ТАЙМЕРЫ (${timersList.size})",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray
+                    )
+
+                    IconButton(
+                        onClick = { timerViewModel.toggleViewMode() },
+                        modifier = Modifier.bounceClick()
+                    ) {
+                        Icon(
+                            imageVector = if (viewMode == TimerViewMode.CAROUSEL) Icons.Default.GridView else Icons.Default.ViewDay,
+                            contentDescription = "Режим отображения",
+                            tint = accentColor
+                        )
                     }
                 }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
-                ) {
-                    itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
-                        Box(modifier = Modifier.staggeredEntrance(index = index)) {
-                            TimerGridItemCard(
-                                item = item,
-                                canDelete = timersList.size > 1,
-                                accentColor = accentColor,
-                                themeConfig = themeConfig,
-                                onToggle = { timerViewModel.toggleSingleTimer(item.id) },
-                                onReset = { timerViewModel.resetSingleTimer(item.id) },
-                                onDelete = { timerViewModel.deleteTimer(item.id) }
-                            )
+
+                AnimatedContent(
+                    targetState = viewMode == TimerViewMode.CAROUSEL,
+                    transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
+                    label = "TimerViewModeTransition"
+                ) { isTileView ->
+                    if (isTileView) {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+                        ) {
+                            itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
+                                var isVisible by remember { mutableStateOf(true) }
+
+                                AnimatedVisibility(
+                                    visible = isVisible,
+                                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f)
+                                ) {
+                                    Box(modifier = Modifier.staggeredEntrance(index = index)) {
+                                        TimerTileCard(
+                                            item = item,
+                                            accentColor = accentColor,
+                                            themeConfig = themeConfig,
+                                            onToggle = { timerViewModel.toggleSingleTimer(item.id) },
+                                            onReset = { timerViewModel.resetSingleTimer(item.id) },
+                                            onDelete = {
+                                                isVisible = false
+                                                timerViewModel.deleteTimer(item.id)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+                        ) {
+                            itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
+                                var isVisible by remember { mutableStateOf(true) }
+
+                                AnimatedVisibility(
+                                    visible = isVisible,
+                                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200))
+                                ) {
+                                    Box(modifier = Modifier.staggeredEntrance(index = index)) {
+                                        TimerGridItemCard(
+                                            item = item,
+                                            accentColor = accentColor,
+                                            themeConfig = themeConfig,
+                                            onToggle = { timerViewModel.toggleSingleTimer(item.id) },
+                                            onReset = { timerViewModel.resetSingleTimer(item.id) },
+                                            onDelete = {
+                                                isVisible = false
+                                                timerViewModel.deleteTimer(item.id)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -360,7 +384,6 @@ private fun WheelDigitPicker(
 @Composable
 private fun TimerTileCard(
     item: TimerItem,
-    canDelete: Boolean,
     accentColor: Color,
     themeConfig: com.necromagik.pureclock.ui.theme.PureClockThemeConfig,
     onToggle: () -> Unit,
@@ -479,13 +502,12 @@ private fun TimerTileCard(
 
                 IconButton(
                     onClick = onDelete,
-                    enabled = canDelete,
                     modifier = Modifier.bounceClick()
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Удалить",
-                        tint = if (canDelete) MaterialTheme.colorScheme.error.copy(alpha = 0.8f) else Color.Gray.copy(alpha = 0.3f)
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
                     )
                 }
             }
@@ -497,7 +519,6 @@ private fun TimerTileCard(
 @Composable
 private fun TimerGridItemCard(
     item: TimerItem,
-    canDelete: Boolean,
     accentColor: Color,
     themeConfig: com.necromagik.pureclock.ui.theme.PureClockThemeConfig,
     onToggle: () -> Unit,
@@ -571,13 +592,12 @@ private fun TimerGridItemCard(
                 }
                 IconButton(
                     onClick = onDelete,
-                    enabled = canDelete,
                     modifier = Modifier.size(32.dp).bounceClick()
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = null,
-                        tint = if (canDelete) MaterialTheme.colorScheme.error.copy(alpha = 0.8f) else Color.Gray.copy(alpha = 0.3f)
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
                     )
                 }
             }

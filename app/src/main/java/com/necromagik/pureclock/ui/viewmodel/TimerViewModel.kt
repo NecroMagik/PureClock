@@ -1,8 +1,11 @@
 package com.necromagik.pureclock.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.necromagik.pureclock.alarm.TimerReceiver
 import com.necromagik.pureclock.alarm.TimerService
 import kotlinx.coroutines.Job
@@ -13,17 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-enum class TimerState {
-    IDLE, RUNNING, PAUSED, COMPLETED
-}
-
-enum class TimerViewMode {
-    CAROUSEL, GRID
-}
-
-enum class TimerExecutionMode {
-    CHAIN, PARALLEL
-}
+enum class TimerState { IDLE, RUNNING, PAUSED, COMPLETED }
+enum class TimerViewMode { CAROUSEL, GRID }
+enum class TimerExecutionMode { CHAIN, PARALLEL }
 
 data class TimerItem(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -37,9 +32,10 @@ data class TimerItem(
 
 class TimerViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _timersList = MutableStateFlow(
-        listOf(TimerItem(label = "Таймер 1", initialTimeSeconds = 300L, remainingSeconds = 300L, remainingMillis = 300000L))
-    )
+    private val prefs = application.getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
+    private val gson = Gson()
+
+    private val _timersList = MutableStateFlow<List<TimerItem>>(emptyList())
     val timersList: StateFlow<List<TimerItem>> = _timersList.asStateFlow()
 
     private val _currentTimerIndex = MutableStateFlow(0)
@@ -57,7 +53,39 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
     private var tickerJob: Job? = null
 
     init {
+        loadTimersFromStorage()
         startTickerLoop()
+    }
+
+    private fun loadTimersFromStorage() {
+        val json = prefs.getString("saved_timers_list", null)
+        if (!json.isNullOrEmpty()) {
+            try {
+                val type = object : TypeToken<List<TimerItem>>() {}.type
+                val saved: List<TimerItem> = gson.fromJson(json, type)
+
+                // Актуализируем расписание паузы/работы
+                val now = System.currentTimeMillis()
+                val restored = saved.map { item ->
+                    if (item.state == TimerState.RUNNING) {
+                        val diff = item.endTimestampMillis - now
+                        if (diff <= 0) {
+                            item.copy(state = TimerState.COMPLETED, remainingMillis = 0L, remainingSeconds = 0L)
+                        } else {
+                            item.copy(remainingMillis = diff, remainingSeconds = (diff + 999L) / 1000L)
+                        }
+                    } else item
+                }
+                _timersList.value = restored
+            } catch (_: Exception) {
+                _timersList.value = emptyList()
+            }
+        }
+    }
+
+    private fun saveTimersToStorage() {
+        val json = gson.toJson(_timersList.value)
+        prefs.edit().putString("saved_timers_list", json).apply()
     }
 
     private fun startTickerLoop() {
@@ -148,14 +176,11 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        saveTimersToStorage()
     }
 
     fun toggleViewMode() {
         _viewMode.value = if (_viewMode.value == TimerViewMode.CAROUSEL) TimerViewMode.GRID else TimerViewMode.CAROUSEL
-    }
-
-    fun toggleExecutionMode() {
-        _executionMode.value = if (_executionMode.value == TimerExecutionMode.CHAIN) TimerExecutionMode.PARALLEL else TimerExecutionMode.CHAIN
     }
 
     fun addTimerToChain(label: String, seconds: Long) {
@@ -170,6 +195,7 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         )
         list.add(newItem)
         _timersList.value = list
+        saveTimersToStorage()
     }
 
     fun toggleSingleTimer(id: String) {
@@ -194,7 +220,6 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                     endTimestampMillis = triggerTime
                 )
 
-                // Форматируем длительность (например "15 сек" или "05:00")
                 val durationText = formatDurationText(item.initialTimeSeconds)
                 TimerReceiver.scheduleTimerAlarm(
                     getApplication(),
@@ -205,6 +230,7 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             _timersList.value = list
+            saveTimersToStorage()
         }
 
         val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
@@ -224,6 +250,7 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                 state = TimerState.IDLE
             )
             _timersList.value = list
+            saveTimersToStorage()
         }
         val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
         updateServiceState(hasRunning)
@@ -231,34 +258,15 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteTimer(id: String) {
         val list = _timersList.value.toMutableList()
-        if (list.size > 1) {
-            TimerReceiver.cancelTimerAlarm(getApplication(), id)
-            list.removeAll { it.id == id }
-            _timersList.value = list
-            if (_currentTimerIndex.value >= list.size) {
-                _currentTimerIndex.value = list.size - 1
-            }
+        TimerReceiver.cancelTimerAlarm(getApplication(), id)
+        list.removeAll { it.id == id }
+        _timersList.value = list
+        saveTimersToStorage()
+
+        if (_currentTimerIndex.value >= list.size) {
+            _currentTimerIndex.value = (list.size - 1).coerceAtLeast(0)
         }
         val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
         updateServiceState(hasRunning)
-    }
-
-    fun addNewTimer(seconds: Long) {
-        val list = _timersList.value.toMutableList()
-        val nextNum = list.size + 1
-        val millis = seconds * 1000L
-        val newItem = TimerItem(
-            label = "Таймер $nextNum",
-            initialTimeSeconds = seconds,
-            remainingSeconds = seconds,
-            remainingMillis = millis,
-            state = TimerState.IDLE
-        )
-        list.add(newItem)
-        _timersList.value = list
-
-        if (!_isChainRunning.value) {
-            _currentTimerIndex.value = list.size - 1
-        }
     }
 }

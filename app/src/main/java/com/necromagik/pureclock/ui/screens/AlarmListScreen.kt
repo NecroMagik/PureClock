@@ -49,7 +49,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
-private val RU_LOCALE = Locale("ru")
+private val RU_LOCALE = Locale.forLanguageTag("ru")
 
 private val OFF_QUOTES = listOf(
     "Все будильники спят. И тебе пора! 💤",
@@ -261,15 +261,19 @@ fun AlarmListScreen(
                                         if (nearestActiveAlarmInfo != null) {
                                             val (alarm, triggerMillis) = nearestActiveAlarmInfo
                                             val duration = Duration.between(Instant.now(), Instant.ofEpochMilli(triggerMillis))
-                                            val hours = duration.toHours()
-                                            val minutes = duration.toMinutes() % 60
+                                            val totalMinutes = duration.toMinutes()
+                                            val days = totalMinutes / (24 * 60)
+                                            val hours = (totalMinutes / 60) % 24
+                                            val minutes = totalMinutes % 60
+
                                             val timeText = String.format(Locale.ROOT, "%02d:%02d", alarm.hour, alarm.minute)
-                                            val countdownText = when {
-                                                hours > 0 && minutes > 0 -> "Через $hours ч $minutes мин"
-                                                hours > 0 -> "Через $hours ч"
-                                                minutes > 0 -> "Через $minutes мин"
-                                                else -> "Менее чем через минуту"
+                                            val countdownText = buildString {
+                                                append("Через ")
+                                                if (days > 0) append("$days дн ")
+                                                if (hours > 0 || days > 0) append("$hours ч ")
+                                                append("$minutes мин")
                                             }
+
                                             Text("Ближайший сигнал в $timeText", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
                                             Text(countdownText, fontSize = 12.sp, color = themeConfig.accentColor, fontWeight = FontWeight.SemiBold)
                                         } else {
