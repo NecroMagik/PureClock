@@ -7,8 +7,10 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.necromagik.pureclock.R
 import com.necromagik.pureclock.data.repository.WidgetConfigRepository
+import java.util.Calendar
 
 class PureClockWidgetProvider : AppWidgetProvider() {
 
@@ -17,12 +19,15 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
         val repo = WidgetConfigRepository(context)
         for (appWidgetId in appWidgetIds) {
             val config = repo.getConfig(appWidgetId)
             val views = WidgetRenderEngine.buildCustomRemoteViews(context, config)
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
+        // Запускаем цепочку точных обновлений при первичной установке виджета
+        scheduleWidgetUpdates(context)
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -30,7 +35,15 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         if (context == null || intent == null) return
 
         val action = intent.action
-        if (action == ACTION_WIDGET_UPDATE_TICK || action == Intent.ACTION_TIME_TICK) {
+        Log.d("PureClockWidget", "Получен интент обновления виджета: $action")
+
+        if (action == ACTION_WIDGET_UPDATE_TICK ||
+            action == Intent.ACTION_TIME_TICK ||
+            action == Intent.ACTION_TIME_CHANGED ||
+            action == Intent.ACTION_TIMEZONE_CHANGED ||
+            action == Intent.ACTION_DATE_CHANGED ||
+            action == Intent.ACTION_BOOT_COMPLETED
+        ) {
             val appWidgetManager = AppWidgetManager.getInstance(context)
             val providerComponent = ComponentName(context, PureClockWidgetProvider::class.java)
             val ids = appWidgetManager.getAppWidgetIds(providerComponent)
@@ -40,11 +53,13 @@ class PureClockWidgetProvider : AppWidgetProvider() {
                     updateSingleWidget(context, appWidgetManager, id)
                 }
             }
+            // Перезапускаем таймер на следующую 00-ю секунду
             scheduleWidgetUpdates(context)
         }
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
         val repo = WidgetConfigRepository(context)
         for (widgetId in appWidgetIds) {
             repo.deleteConfig(widgetId)
@@ -76,23 +91,33 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         appWidgetManager.updateAppWidget(widgetId, views)
     }
 
-    private fun scheduleWidgetUpdates(context: Context) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, PureClockWidgetProvider::class.java).apply {
-            action = ACTION_WIDGET_UPDATE_TICK
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            1001,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val nextTick = (System.currentTimeMillis() / 60000L + 1) * 60000L
-        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC, nextTick, pendingIntent)
-    }
-
     companion object {
         const val ACTION_WIDGET_UPDATE_TICK = "com.necromagik.pureclock.ACTION_WIDGET_UPDATE_TICK"
+
+        fun scheduleWidgetUpdates(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, PureClockWidgetProvider::class.java).apply {
+                action = ACTION_WIDGET_UPDATE_TICK
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                1001,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Вычисляем точное время наступления следующей 00-й секунды
+            val calendar = Calendar.getInstance().apply {
+                add(Calendar.MINUTE, 1)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+
+            val nextTickMillis = calendar.timeInMillis
+
+            // setAlarmClock — единственный вызов AlarmManager, который пробивает любые блокировки OriginOS
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(nextTickMillis, pendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+        }
     }
 }

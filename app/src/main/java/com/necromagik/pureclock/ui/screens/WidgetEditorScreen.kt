@@ -41,7 +41,16 @@ fun WidgetEditorScreen(
 
     var expandedBubble by remember { mutableStateOf<String?>(null) }
 
-    val liveBitmap = remember(config) {
+    var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTimeMillis = System.currentTimeMillis()
+            kotlinx.coroutines.delay(1000L) // Обновляем раз в секунду
+        }
+    }
+
+    val liveBitmap = remember(config, currentTimeMillis) {
         WidgetRenderEngine.renderCustomWidgetBitmap(context, config)
     }
 

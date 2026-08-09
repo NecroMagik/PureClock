@@ -3,25 +3,30 @@ package com.necromagik.pureclock.ui.screens
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
-import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -30,11 +35,11 @@ import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.ClockStylePickerDialog
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
-import com.necromagik.pureclock.widget.WidgetConfigActivity
 import com.necromagik.pureclock.widget.PureClockWidgetProvider
+import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
 
-private const val APP_VERSION = "v1.25"
+private const val APP_VERSION = "v1.26"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,6 +76,7 @@ private fun SettingsMainContent(
     var showAutoDismissDialog by remember { mutableStateOf(false) }
     var showDismissMethodDialog by remember { mutableStateOf(false) }
     var showUpcomingNoticeDialog by remember { mutableStateOf(false) }
+    var showDeveloperInfoDialog by remember { mutableStateOf(false) }
 
     var isCheckingUpdates by remember { mutableStateOf(false) }
     var updateResult by remember { mutableStateOf<SettingsManager.UpdateChecker.ReleaseInfo?>(null) }
@@ -273,26 +279,44 @@ private fun SettingsMainContent(
                         .padding(16.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Code,
-                                contentDescription = null,
-                                tint = themeConfig.accentColor
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = "PureClock",
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
+                        // Кликабельный верхний блок с названием, версией и разработчиком
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { showDeveloperInfoDialog = true }
+                                .padding(vertical = 4.dp, horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Code,
+                                    contentDescription = null,
+                                    tint = themeConfig.accentColor
                                 )
-                                Text(
-                                    text = "Версия $APP_VERSION",
-                                    color = Color.Gray,
-                                    fontSize = 12.sp
-                                )
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text(
+                                        text = "PureClock",
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp
+                                    )
+                                    Text(
+                                        text = "Версия $APP_VERSION • by NecroMagik",
+                                        color = themeConfig.accentColor,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
 
                         HorizontalDivider(
@@ -351,17 +375,6 @@ private fun SettingsMainContent(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "Разработчик", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                            Text(text = "NecroMagik", color = themeConfig.accentColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
                             Text(text = "Экосистема", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                             Text(text = "Zen Space", color = Color.Gray, fontSize = 13.sp)
                         }
@@ -387,7 +400,20 @@ private fun SettingsMainContent(
         }
     }
 
-    // Диалоги
+    if (showDeveloperInfoDialog) {
+        DeveloperInfo3DDialog(
+            accentColor = themeConfig.accentColor,
+            depthDp = themeConfig.depthIntensityDp,
+            is3dEnabled = themeConfig.is3dEnabled,
+            isGlowEnabled = themeConfig.isGlowEnabled,
+            onDismiss = { showDeveloperInfoDialog = false },
+            onOpenUrl = { url ->
+                val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+                context.startActivity(intent)
+            }
+        )
+    }
+
     updateResult?.let { release ->
         AlertDialog(
             onDismissRequest = { updateResult = null },
@@ -501,7 +527,182 @@ private fun SettingsMainContent(
     }
 }
 
-// Вспомогательные UI-компоненты
+@Composable
+private fun DeveloperInfo3DDialog(
+    accentColor: Color,
+    depthDp: Dp,
+    is3dEnabled: Boolean,
+    isGlowEnabled: Boolean,
+    onDismiss: () -> Unit,
+    onOpenUrl: (String) -> Unit
+) {
+    val dialogShape = RoundedCornerShape(28.dp)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.Transparent,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        title = {},
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .pure3DEffect(
+                        shape = dialogShape,
+                        accentColor = accentColor,
+                        depthDp = depthDp + 2.dp,
+                        is3dEnabled = is3dEnabled,
+                        isGlowEnabled = isGlowEnabled,
+                        surfaceColor = MaterialTheme.colorScheme.surface
+                    )
+                    .padding(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(accentColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Terminal,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "NecroMagik",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = "Android Software Developer & Creator",
+                        color = Color.Gray,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    DeveloperLinkButton(
+                        icon = Icons.Default.Code,
+                        title = "GitHub Repository",
+                        subtitle = "github.com/NecroMagik",
+                        accentColor = accentColor,
+                        onClick = { onOpenUrl("https://github.com/NecroMagik") }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    DeveloperLinkButton(
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        title = "Telegram Канал",
+                        subtitle = "t.me/NecroThemik",
+                        accentColor = accentColor,
+                        onClick = { onOpenUrl("https://t.me/NecroThemik") }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    DeveloperLinkButton(
+                        icon = Icons.Default.PhoneAndroid,
+                        title = "OnePlus 12 Series Club",
+                        subtitle = "t.me/OnePlus12SeriesClub",
+                        accentColor = accentColor,
+                        onClick = { onOpenUrl("https://t.me/OnePlus12SeriesClub") }
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bounceClick(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accentColor,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Закрыть", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {}
+    )
+}
+
+@Composable
+private fun DeveloperLinkButton(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .bounceClick()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(accentColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(subtitle, color = Color.Gray, fontSize = 12.sp)
+                }
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                tint = Color.Gray,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
 @Composable
 private fun SettingsHeader(text: String) {
     Text(
