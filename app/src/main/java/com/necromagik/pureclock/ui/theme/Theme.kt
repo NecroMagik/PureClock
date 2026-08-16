@@ -14,9 +14,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 data class PureClockThemeConfig(
-    val accentColor: Color = Color(0xFF00E676),
+    val accentColor: Color = Color.Unspecified,
     val cardCornerRadius: Dp = 24.dp,
-    val isAmoled: Boolean = true,
+    val isAmoled: Boolean = false,
     val is3dEnabled: Boolean = true,
     val isGlowEnabled: Boolean = true,
     val depthIntensityDp: Dp = 8.dp
@@ -27,9 +27,9 @@ val LocalPureClockConfig = staticCompositionLocalOf { PureClockThemeConfig() }
 @Composable
 fun PureClockTheme(
     themeMode: String = "SYSTEM",
-    isPureMonocolor: Boolean = true,
-    accentColor: Color = Color(0xFF00E676),
-    cardCornerRadiusDp: Int = 24,
+    isPureMonocolor: Boolean = false, // По умолчанию выключен чистый монохром для лучшего объема
+    accentColor: Color = SystemThemeUtils.rememberSystemAccentColor(),
+    cardCornerRadiusDp: Int = 20,
     is3dEnabled: Boolean = true,
     isGlowEnabled: Boolean = true,
     depthIntensityDp: Int = 8,
@@ -41,16 +41,17 @@ fun PureClockTheme(
         else -> isSystemInDarkTheme()
     }
 
-    val darkBackground = if (isPureMonocolor) Color(0xFF000000) else Color(0xFF0D0D10)
-    val darkSurface = if (isPureMonocolor) Color(0xFF101012) else Color(0xFF18181C)
+    // Для AMOLED фон #000000, но карточки (surface) должны быть контрастными (#141417), иначе нет объема
+    val darkBackground = if (isPureMonocolor) Color(0xFF000000) else Color(0xFF0C0D11)
+    val darkSurface = if (isPureMonocolor) Color(0xFF141417) else Color(0xFF171920)
 
-    val lightBackground = if (isPureMonocolor) Color(0xFFFFFFFF) else Color(0xFFF4F4F6)
-    val lightSurface = if (isPureMonocolor) Color(0xFFF8F8FA) else Color(0xFFFFFFFF)
+    val lightBackground = if (isPureMonocolor) Color(0xFFFFFFFF) else Color(0xFFF3F4F8)
+    val lightSurface = if (isPureMonocolor) Color(0xFFFFFFFF) else Color(0xFFFEFEFE)
 
     val colorScheme = if (isDark) {
         darkColorScheme(
             primary = accentColor,
-            onPrimary = Color.Black,
+            onPrimary = SystemThemeUtils.getContrastingColor(accentColor),
             primaryContainer = accentColor.copy(alpha = 0.2f),
             onPrimaryContainer = accentColor,
             secondary = accentColor,
@@ -60,15 +61,15 @@ fun PureClockTheme(
             onBackground = Color.White,
             surface = darkSurface,
             onSurface = Color.White,
-            surfaceVariant = Color(0xFF222226),
-            onSurfaceVariant = Color(0xFFC8C8CE),
-            outline = Color(0xFF3F3F46),
-            outlineVariant = Color(0xFF27272A)
+            surfaceVariant = Color(0xFF22242D),
+            onSurfaceVariant = Color(0xFFB0B3C0),
+            outline = Color(0xFF333644),
+            outlineVariant = Color(0xFF1E202A)
         )
     } else {
         lightColorScheme(
             primary = accentColor,
-            onPrimary = Color.White,
+            onPrimary = SystemThemeUtils.getContrastingColor(accentColor),
             primaryContainer = accentColor.copy(alpha = 0.15f),
             onPrimaryContainer = accentColor,
             secondary = accentColor,
@@ -78,10 +79,10 @@ fun PureClockTheme(
             onBackground = Color.Black,
             surface = lightSurface,
             onSurface = Color.Black,
-            surfaceVariant = Color(0xFFE4E4E8),
-            onSurfaceVariant = Color(0xFF52525B),
-            outline = Color(0xFFD4D4D8),
-            outlineVariant = Color(0xFFE4E4E7)
+            surfaceVariant = Color(0xFFE3E5ED),
+            onSurfaceVariant = Color(0xFF5B5E6E),
+            outline = Color(0xFFD1D5E0),
+            outlineVariant = Color(0xFFE2E4EB)
         )
     }
 

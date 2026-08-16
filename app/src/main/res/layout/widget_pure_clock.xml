@@ -2,14 +2,34 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root_container"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="0dp">
+    android:layout_height="match_parent">
 
+    <!-- Фоновый рендер виджета -->
     <ImageView
         android:id="@+id/widget_image_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="fitCenter"
-        android:contentDescription="PureClock Widget Canvas" />
+        android:contentDescription="@null" />
 
+    <!-- Кликабельные прозрачные оверлеи -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Верхняя зона (Циферблат / Часы) -> Открытие MainActivity -->
+        <FrameLayout
+            android:id="@+id/click_target_app"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="3" />
+
+        <!-- Нижняя зона (Дата / Настройки) -> Открытие WidgetConfigActivity -->
+        <FrameLayout
+            android:id="@+id/click_target_config"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
 </FrameLayout>

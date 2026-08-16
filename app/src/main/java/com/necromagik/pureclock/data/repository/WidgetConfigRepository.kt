@@ -6,7 +6,7 @@ import com.google.gson.Gson
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.model.BorderStyle
 import com.necromagik.pureclock.data.model.WidgetConfig
-import kotlin.text.format
+import com.necromagik.pureclock.data.model.WidgetElementType
 
 class WidgetConfigRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("pureclock_widgets_prefs", Context.MODE_PRIVATE)
@@ -20,13 +20,13 @@ class WidgetConfigRepository(private val context: Context) {
 
     fun getConfig(widgetId: Int): WidgetConfig {
         val json = prefs.getString("widget_config_$widgetId", null)
-            ?: prefs.getString("widget_config_0", null)
-            ?: return createDefaultConfig(widgetId)
+        ?: prefs.getString("widget_config_0", null)
+        ?: return createDefaultConfig(widgetId)
 
         return try {
             val parsed = gson.fromJson(json, WidgetConfig::class.java)
             sanitizeConfig(widgetId, parsed)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             createDefaultConfig(widgetId)
         }
     }
@@ -49,32 +49,22 @@ class WidgetConfigRepository(private val context: Context) {
         if (parsed == null) return createDefaultConfig(widgetId)
         val accentHex = getAppAccentHex()
 
-        return WidgetConfig(
+        val validElements = parsed.elementOrder.filterNotNull().ifEmpty {
+            listOf(WidgetElementType.TIME, WidgetElementType.DATE)
+        }
+
+        return parsed.copy(
             id = widgetId,
-            useAppTheme = parsed.useAppTheme,
-            position = parsed.safePosition,
-            elementOrder = parsed.safeElementOrder,
-            displayMode = parsed.safeDisplayMode,
-            analogStyle = parsed.safeAnalogStyle,
-            digitalStyle = parsed.safeDigitalStyle,
-            timeFontSizeSp = if (parsed.timeFontSizeSp <= 0) 80 else parsed.timeFontSizeSp,
-            timeColorHexNullable = parsed.timeColorHexNullable ?: "#FFFFFF",
-            showDate = parsed.showDate,
-            dateFontSizeSp = if (parsed.dateFontSizeSp <= 0) 24 else parsed.dateFontSizeSp,
-            dateColorHexNullable = parsed.dateColorHexNullable ?: accentHex,
-            isDateBold = parsed.isDateBold,
-            showWeather = parsed.showWeather,
-            weatherFontSizeSp = if (parsed.weatherFontSizeSp <= 0) 20 else parsed.weatherFontSizeSp,
-            weatherColorHexNullable = parsed.weatherColorHexNullable ?: "#CCCCCC",
-            showBackground = parsed.showBackground,
-            backgroundColorHexNullable = parsed.backgroundColorHexNullable ?: "#0B0B0B",
-            backgroundAlpha = parsed.backgroundAlpha,
-            showBorder = parsed.showBorder,
-            borderStyle = parsed.borderStyle ?: BorderStyle.SOLID,
-            borderColorHexNullable = parsed.borderColorHexNullable ?: accentHex,
-            borderWidthDp = if (parsed.borderWidthDp <= 0) 3 else parsed.borderWidthDp,
-            cornerRadiusDp = parsed.cornerRadiusDp,
-            enableBorderGlow = parsed.enableBorderGlow
+            elementOrder = validElements,
+            timeFontSizeSp = if (parsed.timeFontSizeSp <= 0) 76 else parsed.timeFontSizeSp,
+        timeColorHexNullable = parsed.timeColorHexNullable ?: "#FFFFFF",
+        dateFontSizeSp = if (parsed.dateFontSizeSp <= 0) 22 else parsed.dateFontSizeSp,
+        dateColorHexNullable = parsed.dateColorHexNullable ?: accentHex,
+        backgroundColorHexNullable = parsed.backgroundColorHexNullable ?: "#0B0B0B",
+        borderStyle = parsed.borderStyle ?: BorderStyle.SOLID,
+        borderColorHexNullable = parsed.borderColorHexNullable ?: accentHex,
+        borderWidthDp = if (parsed.borderWidthDp <= 0) 3 else parsed.borderWidthDp,
+        cornerRadiusDp = if (parsed.cornerRadiusDp <= 0) 24 else parsed.cornerRadiusDp
         )
     }
 
