@@ -47,6 +47,7 @@ import com.necromagik.pureclock.ui.viewmodel.AlarmViewModel
 import com.necromagik.pureclock.ui.viewmodel.StopwatchViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
 import kotlinx.coroutines.launch
+import java.time.LocalTime
 import java.time.ZoneId
 
 enum class ClockTab(val title: String, val tabType: BottomBarTab) {
@@ -118,29 +119,36 @@ fun MainScreen(viewModel: AlarmViewModel) {
     ) { isEditing ->
         if (isEditing) {
             val alarmToEdit = editingAlarm
+            val defaultTime = remember { LocalTime.now().plusMinutes(1) }
+
             AddEditAlarmScreen(
                 editingAlarmId = alarmToEdit?.id,
-                initialHour = alarmToEdit?.hour ?: 14,
-                initialMinute = alarmToEdit?.minute ?: 10,
+                initialHour = alarmToEdit?.hour ?: defaultTime.hour,
+                initialMinute = alarmToEdit?.minute ?: defaultTime.minute,
                 initialLabel = alarmToEdit?.label ?: "Будильник",
                 initialRingtoneUri = alarmToEdit?.ringtoneUri,
                 initialDaysOfWeek = alarmToEdit?.daysOfWeek ?: 0,
-                initialSpecificDateMillis = alarmToEdit?.specificDateMillis,
-                onSave = { hour, minute, days, dates, label, _, isVibrate ->
+                initialExtraDates = alarmToEdit?.parseExtraDates() ?: emptySet(),
+                initialExcludedDates = alarmToEdit?.parseExcludedDates() ?: emptySet(),
+                onSave = { hour, minute, days, extraDates, excludedDates, label, ringtoneUri, isVibrate ->
                     val daysMask = days.fold(0) { mask, day -> mask or (1 shl (day.value - 1)) }
-                    val specificDate = if (dates.isNotEmpty()) {
-                        dates.minOrNull()?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
-                    } else null
+                    val extraDatesStr = extraDates.takeIf { it.isNotEmpty() }?.joinToString(",") { it.toString() }
+                    val excludedDatesStr = excludedDates.takeIf { it.isNotEmpty() }?.joinToString(",") { it.toString() }
+                    val specificDateMillis = extraDates.firstOrNull()?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
 
                     viewModel.saveAlarm(
                         id = alarmToEdit?.id ?: 0L,
                         hour = hour,
                         minute = minute,
                         daysOfWeek = daysMask,
-                        specificDateMillis = specificDate,
+                        specificDateMillis = specificDateMillis,
+                        extraDatesStr = extraDatesStr,
+                        excludedDatesStr = excludedDatesStr,
                         label = label,
+                        ringtoneUri = ringtoneUri,
                         isVibrate = isVibrate
                     )
+
                     isAddingAlarm = false
                     editingAlarm = null
                 },
@@ -282,7 +290,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                     val currentTab = ClockTab.entries[pagerState.currentPage]
                                     val isStopwatchTab = currentTab == ClockTab.STOPWATCH
 
-                                    // ЛЕВАЯ КНОПКА: СБРОС (по диагонали влево-вверх под 45°)
                                     AnimatedVisibility(
                                         visible = isStopwatchTab && (stopwatchElapsed > 0 && !isStopwatchRunning),
                                         enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
@@ -304,7 +311,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         }
                                     }
 
-                                    // ПРАВАЯ КНОПКА: ОТСЕЧКА КРУГА (по диагонали вправо-вверх под 45°)
                                     AnimatedVisibility(
                                         visible = isStopwatchTab && isStopwatchRunning,
                                         enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
@@ -326,7 +332,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         }
                                     }
 
-                                    // ЦЕНТРАЛЬНАЯ КНОПКА FAB
                                     val fabIcon = when (currentTab) {
                                         ClockTab.ALARM -> Icons.Default.Add
                                         ClockTab.WORLD_CLOCK -> Icons.Default.Search

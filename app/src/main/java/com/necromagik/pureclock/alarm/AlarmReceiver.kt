@@ -78,8 +78,12 @@ class AlarmReceiver : BroadcastReceiver() {
                     if (alarm != null) {
                         NoticeCenter(context).dismissUpcomingNotice(alarmId)
 
-                        if (alarm.daysOfWeek == 0 && alarm.specificDateMillis == null) {
-                            db.alarmDao().updateAlarm(alarm.copy(isEnabled = false))
+                        // Автоотключение, если это разовый сигнал (нет повторов по дням и выбрано не более 1 даты)
+                        val extraDates = alarm.parseExtraDates()
+                        val isOneTimeAlarm = alarm.daysOfWeek == 0 && extraDates.size <= 1
+
+                        if (isOneTimeAlarm) {
+                            db.alarmDao().updateAlarm(alarm.copy(isEnabled = false, skippedDateMillis = null))
                         }
 
                         val serviceIntent = Intent(context, AlarmService::class.java).apply {

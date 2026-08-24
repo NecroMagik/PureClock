@@ -16,9 +16,6 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.getDatabase(application).alarmDao()
     private val scheduler = AlarmScheduler(application)
 
-    // ============================================================================
-// СЕКЦИЯ 1: ПОТОК ДАННЫХ ВСЕХ БУДИЛЬНИКОВ (STATE FLOW)
-// ============================================================================
     val alarms: StateFlow<List<AlarmEntity>> = dao.getAllAlarms()
         .stateIn(
             scope = viewModelScope,
@@ -26,16 +23,16 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
-    // ============================================================================
-// СЕКЦИЯ 2: СОХРАНЕНИЕ И ОБНОВЛЕНИЕ СИГНАЛА
-// ============================================================================
     fun saveAlarm(
         id: Long = 0,
         hour: Int,
         minute: Int,
         daysOfWeek: Int,
         specificDateMillis: Long?,
+        extraDatesStr: String? = null,
+        excludedDatesStr: String? = null,
         label: String = "",
+        ringtoneUri: String? = null,
         isVibrate: Boolean = true
     ) {
         viewModelScope.launch {
@@ -45,9 +42,12 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
                 minute = minute,
                 daysOfWeek = daysOfWeek,
                 specificDateMillis = specificDateMillis,
+                extraDatesStr = extraDatesStr,
+                excludedDatesStr = excludedDatesStr,
                 skippedDateMillis = null,
                 isEnabled = true,
                 label = label,
+                ringtoneUri = ringtoneUri,
                 isVibrate = isVibrate
             )
 
@@ -56,14 +56,11 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ============================================================================
-// СЕКЦИЯ 3: ПЕРЕКЛЮЧЕНИЕ, УМНЫЙ ПРОПУСК И УДАЛЕНИЕ
-// ============================================================================
     fun toggleAlarm(alarm: AlarmEntity, isEnabled: Boolean) {
         viewModelScope.launch {
             val nowMillis = System.currentTimeMillis()
             val validSpecificDate = if (alarm.specificDateMillis != null && alarm.specificDateMillis < nowMillis) {
-                null // Дата уже в прошлом, сбрасываем
+                null
             } else {
                 alarm.specificDateMillis
             }

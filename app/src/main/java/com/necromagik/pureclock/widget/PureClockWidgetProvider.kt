@@ -7,16 +7,19 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
-import com.necromagik.pureclock.R
 import com.necromagik.pureclock.data.repository.WidgetConfigRepository
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 class PureClockWidgetProvider : AppWidgetProvider() {
 
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
-        Log.d("PureClockWidget", "onEnabled: инициализация таймера тиков")
+        Log.i(TAG, "==> [onEnabled] Первый виджет добавлен. Запуск планировщика тиков...")
         scheduleWidgetUpdates(context)
     }
 
@@ -26,6 +29,9 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
+        val now = System.currentTimeMillis()
+        Log.d(TAG, "==> [onUpdate] Системный вызов onUpdate() в ${formatTime(now)}. Виджетов для обновления: ${appWidgetIds.size}")
+
         for (appWidgetId in appWidgetIds) {
             updateSingleWidget(context, appWidgetManager, appWidgetId)
         }
@@ -36,8 +42,12 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         if (context == null || intent == null) return
 
-        val action = intent.action
-        Log.d("PureClockWidget", "Получен интент обновления виджета: $action")
+        val now = System.currentTimeMillis()
+        val action = intent.action ?: "UNKNOWN_ACTION"
+        val seconds = (now / 1000) % 60
+        val millis = now % 1000
+
+        Log.i(TAG, "==> [onReceive] Получен интент [$action] в ${formatTime(now)} (Секунда: $seconds, мс: $millis)")
 
         if (action == ACTION_WIDGET_UPDATE_TICK ||
             action == Intent.ACTION_TIME_TICK ||
@@ -52,16 +62,24 @@ class PureClockWidgetProvider : AppWidgetProvider() {
             val ids = appWidgetManager.getAppWidgetIds(providerComponent)
 
             if (ids != null && ids.isNotEmpty()) {
+                Log.d(TAG, "--> [onReceive] Найдено активных виджетов: ${ids.size}. Запуск перерисовки...")
                 for (id in ids) {
                     updateSingleWidget(context, appWidgetManager, id)
                 }
+            } else {
+                Log.w(TAG, "--> [onReceive] Список виджетов пуст (ids is null or empty)!")
             }
+
+            // Перепланируем будильник на следующую 00-ю секунду
             scheduleWidgetUpdates(context)
+        } else {
+            Log.v(TAG, "--> [onReceive] Пропущен интент $action (не входит в фильтр)")
         }
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         super.onDeleted(context, appWidgetIds)
+        Log.w(TAG, "==> [onDeleted] Удалены виджеты: ${appWidgetIds.joinToString()}")
         val repo = WidgetConfigRepository(context)
         for (widgetId in appWidgetIds) {
             repo.deleteConfig(widgetId)
@@ -70,10 +88,10 @@ class PureClockWidgetProvider : AppWidgetProvider() {
 
     override fun onDisabled(context: Context) {
         super.onDisabled(context)
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        Log.w(TAG, "==> [onDisabled] Все виджеты удалены. Остановка планировщика...")
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(context, PureClockWidgetProvider::class.java).apply {
             action = ACTION_WIDGET_UPDATE_TICK
-            setPackage(context.packageName)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -89,20 +107,38 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         widgetId: Int
     ) {
-        val repo = WidgetConfigRepository(context)
-        val config = repo.getConfig(widgetId)
+        try {
+            val startTime = System.currentTimeMillis()
+            val repo = WidgetConfigRepository(context)
+            val config = repo.getConfig(widgetId)
 
-        val views = WidgetRenderEngine.buildCustomRemoteViews(context, config)
-        // Строка views.setOnClickPendingIntent(R.id.widget_root_container, pendingIntent) УДАЛЕНА
-        appWidgetManager.updateAppWidget(widgetId, views)
+            Log.d(TAG, "----> [Render] Начало сборки RemoteViews для WidgetId: $widgetId")
+            val views = WidgetRenderEngine.buildCustomRemoteViews(context, config)
+
+            appWidgetManager.updateAppWidget(widgetId, views)
+            val duration = System.currentTimeMillis() - startTime
+            Log.d(TAG, "----> [Render] WidgetId: $widgetId успешно обновлен за ${duration}мс")
+        } catch (e: Exception) {
+            Log.e(TAG, "!!!! [Render ERROR] Ошибка при обновлении виджета ID $widgetId: ${e.message}", e)
+        }
     }
 
     companion object {
+        const val TAG = "PureClock_WIDGET_DEBUG"
         const val ACTION_WIDGET_UPDATE_TICK = "com.necromagik.pureclock.ACTION_WIDGET_UPDATE_TICK"
-        private const val WIDGET_ALARM_REQUEST_CODE = 1001
+        private const val WIDGET_ALARM_REQUEST_CODE = 4004
+
+        private fun formatTime(millis: Long): String {
+            val sdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT)
+            return sdf.format(Date(millis))
+        }
 
         fun scheduleWidgetUpdates(context: Context) {
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            if (alarmManager == null) {
+                Log.e(TAG, "!!!! [Schedule ERROR] AlarmManager недоступен!")
+                return
+            }
 
             val intent = Intent(context, PureClockWidgetProvider::class.java).apply {
                 action = ACTION_WIDGET_UPDATE_TICK
@@ -119,19 +155,37 @@ class PureClockWidgetProvider : AppWidgetProvider() {
             val now = System.currentTimeMillis()
             val calendar = Calendar.getInstance().apply {
                 timeInMillis = now
+                add(Calendar.MINUTE, 1)
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
-                add(Calendar.MINUTE, 1)
             }
 
-            var nextTickMillis = calendar.timeInMillis
-            if (nextTickMillis <= now) {
-                nextTickMillis += 60_000L
-            }
+            val nextTickMillis = calendar.timeInMillis
+            val delayMs = nextTickMillis - now
+            val delaySec = delayMs / 1000.0
 
-            // setAlarmClock игнорирует ограничения Doze mode и агрессивные таск-киллеры
-            val alarmClockInfo = AlarmManager.AlarmClockInfo(nextTickMillis, pendingIntent)
-            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+            Log.i(TAG, "==> [Schedule] Планирование тика на ${formatTime(nextTickMillis)} (через ${String.format(Locale.ROOT, "%.2f", delaySec)} сек / ${delayMs}мс)")
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        nextTickMillis,
+                        pendingIntent
+                    )
+                    Log.v(TAG, "--> [Schedule] Вызван AlarmManager.setExactAndAllowWhileIdle")
+                } else {
+                    alarmManager.setExact(
+                        AlarmManager.RTC_WAKEUP,
+                        nextTickMillis,
+                        pendingIntent
+                    )
+                    Log.v(TAG, "--> [Schedule] Вызван AlarmManager.setExact")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "--> [Schedule WARN] Точный аларм отклонен (${e.message}), ставим обычный set()")
+                alarmManager.set(AlarmManager.RTC_WAKEUP, nextTickMillis, pendingIntent)
+            }
         }
     }
 }

@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [AlarmEntity::class, CityEntity::class],
-    version = 3,
+    version = 4, // <-- Подняли версию схемы с 3 на 4
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,9 +27,6 @@ abstract class AppDatabase : RoomDatabase() {
                     "pure_clock_database"
                 )
                     .fallbackToDestructiveMigration()
-                    // Если положишь предзагруженный файл базы в assets/databases/cities_initial.db,
-                    // раскомментируй следующую строчку:
-                    // .createFromAsset("databases/cities_initial.db")
                     .build()
                 INSTANCE = instance
                 instance

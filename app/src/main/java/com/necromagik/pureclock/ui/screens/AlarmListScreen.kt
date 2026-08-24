@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -40,6 +39,7 @@ import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.animation.staggeredEntrance
 import com.necromagik.pureclock.ui.components.EmptyAlarmState
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
+import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.util.PermissionHelper
 import java.time.DayOfWeek
 import java.time.Duration
@@ -73,7 +73,6 @@ fun AlarmListScreen(
     val themeConfig = LocalPureClockConfig.current
     val scheduler = remember { AlarmScheduler(context) }
 
-    // Persistent сохранение состояния "Сетка / Список"
     val prefs = remember(context) { context.getSharedPreferences("pureclock_prefs", Context.MODE_PRIVATE) }
     var isCardView by remember {
         mutableStateOf(prefs.getBoolean("is_alarm_card_view", true))
@@ -81,23 +80,20 @@ fun AlarmListScreen(
 
     var selectedAlarmIds by remember { mutableStateOf(setOf<Long>()) }
     val isSelectionMode = selectedAlarmIds.isNotEmpty()
-
     var alarmToDisable by remember { mutableStateOf<AlarmEntity?>(null) }
 
     LaunchedEffect(alarms) {
         selectedAlarmIds = emptySet()
     }
 
-    // --- МЕНЕДЖЕР РАЗРЕШЕНИЙ ---
     val postNotificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { /* Автоматическое обновление состояния вызовется через DisposableEffect */ }
+    ) {}
 
     var isAllPermissionsGranted by remember {
         mutableStateOf(PermissionHelper.hasAllRequiredPermissions(context))
     }
 
-    // Ежесекундное тиканье системного времени для актуализации плашки
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     DisposableEffect(Unit) {
@@ -167,19 +163,25 @@ fun AlarmListScreen(
         ) {
             Spacer(modifier = Modifier.height(20.dp))
 
-            // --- БАННЕР НЕДОСТАЮЩИХ РАЗРЕШЕНИЙ ---
             if (!isAllPermissionsGranted) {
-                Card(
-                    shape = RoundedCornerShape(themeConfig.cardCornerRadius),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 10.dp)
+                        .pure3DEffect(
+                            shape = RoundedCornerShape(themeConfig.cardCornerRadius),
+                            accentColor = themeConfig.accentColor,
+                            depthDp = themeConfig.depthIntensityDp,
+                            is3dEnabled = themeConfig.is3dEnabled,
+                            isGlowEnabled = themeConfig.isGlowEnabled,
+                            surfaceColor = MaterialTheme.colorScheme.surface
+                        )
+                        .padding(14.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -194,11 +196,7 @@ fun AlarmListScreen(
                                 !PermissionHelper.hasFullScreenIntentPermission(context) -> "Разрешите полноэкранные сигналы"
                                 else -> "Настройте параметры работы приложения"
                             }
-                            Text(
-                                text = subtitle,
-                                color = Color.Gray,
-                                fontSize = 12.sp
-                            )
+                            Text(text = subtitle, color = Color.Gray, fontSize = 12.sp)
                         }
                         TextButton(
                             onClick = {
@@ -237,17 +235,22 @@ fun AlarmListScreen(
                 } else {
                     Column {
                         if (!isSelectionMode) {
-                            Card(
-                                shape = RoundedCornerShape(themeConfig.cardCornerRadius),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 10.dp)
+                                    .pure3DEffect(
+                                        shape = RoundedCornerShape(themeConfig.cardCornerRadius),
+                                        accentColor = themeConfig.accentColor,
+                                        depthDp = themeConfig.depthIntensityDp,
+                                        is3dEnabled = themeConfig.is3dEnabled,
+                                        isGlowEnabled = themeConfig.isGlowEnabled,
+                                        surfaceColor = MaterialTheme.colorScheme.surface
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -300,7 +303,7 @@ fun AlarmListScreen(
                         }
 
                         val onToggleHandler: (AlarmEntity) -> Unit = { alarm ->
-                            if (alarm.isEnabled && alarm.daysOfWeek != 0) {
+                            if (alarm.isEnabled && (alarm.daysOfWeek != 0 || !alarm.extraDatesStr.isNullOrBlank())) {
                                 alarmToDisable = alarm
                             } else {
                                 onToggleAlarm(alarm, !alarm.isEnabled)
@@ -317,7 +320,7 @@ fun AlarmListScreen(
                                     columns = GridCells.Fixed(2),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(top = 20.dp, bottom = 90.dp)
+                                    contentPadding = PaddingValues(top = 10.dp, bottom = 90.dp)
                                 ) {
                                     itemsIndexed(alarms, key = { _, alarm -> alarm.id }) { index, alarm ->
                                         Box(modifier = Modifier.staggeredEntrance(index = index)) {
@@ -342,7 +345,7 @@ fun AlarmListScreen(
                             } else {
                                 LazyColumn(
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(top = 20.dp, bottom = 90.dp)
+                                    contentPadding = PaddingValues(top = 10.dp, bottom = 90.dp)
                                 ) {
                                     itemsIndexed(alarms, key = { _, alarm -> alarm.id }) { index, alarm ->
                                         Box(modifier = Modifier.staggeredEntrance(index = index)) {
@@ -469,28 +472,38 @@ fun AlarmListScreen(
 
 private fun AlarmEntity.toUiModel(): AlarmUiModel {
     val formattedTime = String.format(Locale.ROOT, "%02d:%02d", hour, minute)
-
     val today = java.time.LocalDate.now()
     val systemZone = ZoneId.systemDefault()
+
+    val extraDates = parseExtraDates()
+    val excludedDates = parseExcludedDates()
 
     val formattedDays = when {
         skippedDateMillis != null -> {
             val date = Instant.ofEpochMilli(skippedDateMillis).atZone(systemZone).toLocalDate()
             "Пропущен: ${date.format(DateTimeFormatter.ofPattern("d MMMM", RU_LOCALE))}"
         }
-        daysOfWeek == 127 -> "Каждый день"
-        daysOfWeek == 31 -> "Будни"
-        daysOfWeek == 96 -> "Выходные"
-        daysOfWeek > 0 -> {
-            DayOfWeek.entries.filter { day -> (daysOfWeek and (1 shl (day.value - 1))) != 0 }
-                .joinToString(", ") { it.getDisplayName(TextStyle.SHORT, RU_LOCALE) }
+        daysOfWeek != 0 -> {
+            val base = when (daysOfWeek) {
+                127 -> "Каждый день"
+                31 -> "Будни"
+                96 -> "Выходные"
+                else -> DayOfWeek.entries
+                    .filter { day -> (daysOfWeek and (1 shl (day.value - 1))) != 0 }
+                    .joinToString(", ") { it.getDisplayName(TextStyle.SHORT, RU_LOCALE) }
+            }
+            if (excludedDates.isNotEmpty()) "$base (-${excludedDates.size} дн.)" else base
         }
-        specificDateMillis != null -> {
-            val date = Instant.ofEpochMilli(specificDateMillis).atZone(systemZone).toLocalDate()
-            when (date) {
-                today -> "Сегодня"
-                today.plusDays(1) -> "Завтра"
-                else -> date.format(DateTimeFormatter.ofPattern("d MMMM", RU_LOCALE))
+        extraDates.isNotEmpty() -> {
+            if (extraDates.size == 1) {
+                val date = extraDates.first()
+                when (date) {
+                    today -> "Сегодня"
+                    today.plusDays(1) -> "Завтра"
+                    else -> date.format(DateTimeFormatter.ofPattern("d MMMM", RU_LOCALE))
+                }
+            } else {
+                "${extraDates.size} выбранных дат"
             }
         }
         else -> {
