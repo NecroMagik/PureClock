@@ -39,7 +39,7 @@ import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
 
-private const val APP_VERSION = "v1.27"
+private const val APP_VERSION = "v1.27a"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
