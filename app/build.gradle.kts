@@ -59,6 +59,7 @@ ksp {
 dependencies {
     implementation(libs.androidx.compose.animation)
     implementation(libs.androidx.compose.animation.core)
+    implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.ui.test)
     implementation(libs.androidx.compose.ui.text)
 

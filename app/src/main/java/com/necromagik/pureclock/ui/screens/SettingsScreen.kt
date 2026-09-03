@@ -38,6 +38,7 @@ import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
+import com.necromagik.pureclock.ui.components.PureSwitch
 
 private const val APP_VERSION = "v1.27a"
 
@@ -67,7 +68,8 @@ private fun SettingsMainContent(
     val activeWidgetIds = remember {
         val appWidgetManager = AppWidgetManager.getInstance(context)
         val componentName = ComponentName(context, PureClockWidgetProvider::class.java)
-        appWidgetManager.getAppWidgetIds(componentName)
+        val ids = appWidgetManager.getAppWidgetIds(componentName)
+        ids.filter { it > 0 }.toIntArray()
     }
     val hasActiveWidget = activeWidgetIds.isNotEmpty()
 
@@ -756,16 +758,12 @@ private fun SettingsSwitchCard(
                     Text(subtitle, color = Color.Gray, fontSize = 12.sp)
                 }
             }
-            Switch(
+            PureSwitch(
                 checked = localChecked,
                 onCheckedChange = { newState ->
                     localChecked = newState
                     onCheckedChange(newState)
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.surface,
-                    checkedTrackColor = MaterialTheme.colorScheme.primary
-                )
+                }
             )
         }
     }

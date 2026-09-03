@@ -51,7 +51,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Псевдоним и фильтр для статус-бара OriginOS и вызова системного будильника -->
         <activity-alias
             android:name=".MainActivityAliasDefault"
             android:directBootAware="true"
@@ -70,7 +69,6 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Редактор виджетов -->
         <activity
             android:name=".widget.WidgetConfigActivity"
             android:directBootAware="true"
@@ -83,7 +81,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Экран срабатывания будильника поверх заблокированного экрана -->
         <activity
             android:name=".alarm.AlarmAlertActivity"
             android:configChanges="mcc|mnc|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize"
@@ -97,7 +94,6 @@
             android:turnScreenOn="true"
             tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity" />
 
-        <!-- Фоновые службы с поддержкой DirectBoot -->
         <service
             android:name=".alarm.AlarmService"
             android:directBootAware="true"
@@ -113,23 +109,26 @@
             android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
             android:value="Alarm Clock Notification Service" />
 
-        <!-- Защитник от вылетов -->
+        <!-- Защитник от вылетов (DirectBoot Aware + приоритет 1000) -->
         <receiver
             android:name=".keeper.KeeperReceiver"
+            android:directBootAware="true"
             android:enabled="true"
             android:exported="true">
-            <intent-filter>
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.USER_PRESENT" />
                 <action android:name="android.intent.action.USER_FOREGROUND" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MANAGED_PROFILE_UNLOCKED" />
+                <action android:name="android.intent.action.MANAGED_PROFILE_AVAILABLE" />
             </intent-filter>
         </receiver>
 
-        <!-- Приемник тиков времени -->
         <receiver
             android:name=".alarm.AlarmReceiver"
             android:directBootAware="true"
@@ -140,7 +139,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- Высокоприоритетный ресивер автозапуска и инициализации -->
         <receiver
             android:name=".alarm.BootReceiver"
             android:directBootAware="true"
@@ -165,14 +163,18 @@
             </intent-filter>
         </receiver>
 
-        <!-- Виджет -->
+        <!-- Виджет рабочего стола -->
         <receiver
             android:name=".widget.PureClockWidgetProvider"
             android:directBootAware="true"
+            android:enabled="true"
             android:exported="true"
             android:label="PureClock: Конструктор Виджета">
-            <intent-filter>
+            <intent-filter android:priority="1000">
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.USER_PRESENT" />
+                <action android:name="android.intent.action.USER_FOREGROUND" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.TIME_TICK" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
