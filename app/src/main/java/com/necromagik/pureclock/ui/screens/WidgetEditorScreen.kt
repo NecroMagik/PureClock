@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.necromagik.pureclock.data.model.*
 import com.necromagik.pureclock.ui.animation.bounceClick
+import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.widget.WidgetRenderEngine
 
@@ -317,10 +318,9 @@ fun WidgetEditorScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("Жирный шрифт даты", fontSize = 13.sp)
-                                Switch(
+                                PureSwitch(
                                     checked = config.isDateBold,
-                                    onCheckedChange = { config = config.copy(isDateBold = it) },
-                                    colors = SwitchDefaults.colors(checkedTrackColor = themeConfig.accentColor)
+                                    onCheckedChange = { config = config.copy(isDateBold = it) }
                                 )
                             }
 
@@ -399,10 +399,9 @@ fun WidgetEditorScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("Неоновое свечение границы", fontSize = 13.sp)
-                                Switch(
+                                PureSwitch(
                                     checked = config.enableBorderGlow,
-                                    onCheckedChange = { config = config.copy(enableBorderGlow = it) },
-                                    colors = SwitchDefaults.colors(checkedTrackColor = themeConfig.accentColor)
+                                    onCheckedChange = { config = config.copy(enableBorderGlow = it) }
                                 )
                             }
 
@@ -483,13 +482,12 @@ private fun ExpandableSettingBubble(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (hasSwitch && onCheckChange != null) {
-                        Switch(
+                        PureSwitch(
                             checked = isChecked,
                             onCheckedChange = {
                                 onCheckChange(it)
                                 if (it && !isExpanded) onToggle()
-                            },
-                            colors = SwitchDefaults.colors(checkedTrackColor = accentColor)
+                            }
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                     }

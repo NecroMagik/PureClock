@@ -38,7 +38,7 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
     val laps: StateFlow<List<LapRecord>> = _laps.asStateFlow()
 
     private var timerJob: Job? = null
-    private var lastTimestamp = 0L
+    private var startTime = 0L
 
     fun toggleStartPause() {
         if (_isRunning.value) {
@@ -50,18 +50,18 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun start() {
         _isRunning.value = true
-        lastTimestamp = System.currentTimeMillis()
+        startTime = System.currentTimeMillis() - _elapsedMillis.value
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (_isRunning.value) {
                 val now = System.currentTimeMillis()
-                val delta = now - lastTimestamp
-                lastTimestamp = now
+                val currentElapsed = now - startTime
+                _elapsedMillis.value = currentElapsed
 
-                _elapsedMillis.value += delta
-                _currentLapMillis.value += delta
+                val lastTotalBeforeCurrentLap = _laps.value.sumOf { it.lapTimeMillis }
+                _currentLapMillis.value = (currentElapsed - lastTotalBeforeCurrentLap).coerceAtLeast(0L)
 
-                delay(16L) // ~60 FPS для плавной анимированной стрелки
+                delay(8L) // Ультраплавные ~120 FPS обновления для стрелок
             }
         }
     }
@@ -83,14 +83,17 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
 
         val lapTime = _currentLapMillis.value
         val totalTime = _elapsedMillis.value
-        val lapNumber = _laps.value.size + 1
+        val nextLapNumber = _laps.value.size + 1
 
         val newRawLaps = _laps.value.toMutableList().apply {
-            add(0, LapRecord(lapNumber, lapTime, totalTime))
+            // Новые круги добавляем в самое начало списка (индекс 0), чтобы они были сверху
+            add(0, LapRecord(nextLapNumber, lapTime, totalTime))
         }
 
         _laps.value = recalculateLapTypes(newRawLaps)
-        _currentLapMillis.value = 0L
+
+        val calculatedTotalLaps = _laps.value.sumOf { it.lapTimeMillis }
+        _currentLapMillis.value = (_elapsedMillis.value - calculatedTotalLaps).coerceAtLeast(0L)
     }
 
     private fun recalculateLapTypes(rawLaps: List<LapRecord>): List<LapRecord> {

@@ -71,4 +71,17 @@ class WidgetConfigRepository(private val context: Context) {
     fun deleteConfig(widgetId: Int) {
         prefs.edit { remove("widget_config_$widgetId") }
     }
+
+    fun cleanupOrphanedConfigs(activeIds: IntArray) {
+        val activeSet = activeIds.map { "widget_config_$it" }.toSet()
+        val allKeys = prefs.all.keys.filter { it.startsWith("widget_config_") && it != "widget_config_0" }
+
+        prefs.edit {
+            allKeys.forEach { key ->
+                if (!activeSet.contains(key)) {
+                    remove(key)
+                }
+            }
+        }
+    }
 }

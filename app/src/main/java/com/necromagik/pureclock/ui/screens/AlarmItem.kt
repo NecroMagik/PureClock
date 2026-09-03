@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.animation.rememberAlarmCardAnimation
+import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 
 data class AlarmUiModel(
@@ -272,17 +273,13 @@ fun AlarmItem(
                         colors = CheckboxDefaults.colors(checkedColor = accentColor)
                     )
                 } else {
-                    Switch(
+                    PureSwitch(
                         checked = alarm.isEnabled,
                         onCheckedChange = {
                             val nextState = !alarm.isEnabled
                             triggerCustomHaptic(nextState)
                             onToggle()
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedTrackColor = accentColor,
-                            checkedThumbColor = MaterialTheme.colorScheme.surface
-                        )
+                        }
                     )
                 }
             }

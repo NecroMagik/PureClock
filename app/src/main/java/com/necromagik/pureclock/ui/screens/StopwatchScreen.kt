@@ -1,6 +1,7 @@
 package com.necromagik.pureclock.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -47,45 +49,62 @@ fun StopwatchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    .padding(horizontal = 16.dp),
+    horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // ДВОЙНОЙ 3D ЦИФЕРБЛАТ СЕКУНДОМЕРА
+        // УЛЬТРАПЛАВНЫЙ ДВОЙНОЙ ХРОНОГРАФ
         DualChronographDial(
             elapsedMillis = elapsedMillis,
-            currentLapMillis = currentLapMillis,
-            isRunning = isRunning,
-            accentColor = accentColor,
-            themeConfig = themeConfig
+        currentLapMillis = currentLapMillis,
+        isRunning = isRunning,
+        accentColor = accentColor,
+        themeConfig = themeConfig
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // СПИСОК КРУГОВ С ТРЕХЦВЕТНОЙ ИНДИКАЦИЕЙ
+        // ШАПКА ТАБЛИЦЫ КРУГОВ (ФИКСИРОВАНА СВЕРХУ)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+        .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("КРУГ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-            Text("ВРЕМЯ КРУГА", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-            Text("ОБЩЕЕ ВРЕМЯ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-        }
+        Text("КРУГ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+        Text("ВРЕМЯ КРУГА", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+        Text("ОБЩЕЕ ВРЕМЯ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+    }
 
-        HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
+        // СПИСОК КРУГОВ: ПРИВЯЗАН К ВЕРХУ, НОВЫЕ ПАДАЮТ СВЕРХУ, СТАРЫЕ СМЕЩАЮТСЯ ВНИЗ
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(top = 10.dp, bottom = 100.dp),
-            modifier = Modifier.fillMaxSize()
+        contentPadding = PaddingValues(top = 10.dp, bottom = 120.dp),
+        modifier = Modifier
+            .fillMaxSize()
+        .weight(1f)
         ) {
-            items(laps, key = { it.lapNumber }) { lap ->
-                LapItemCard(lap = lap)
-            }
+        items(
+            items = laps,
+            key = { it.lapNumber }
+        ) { lap ->
+        Box(
+            modifier = Modifier.animateItem(
+                fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                placementSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)
+            )
+        ) {
+            LapItemCard(
+                lap = lap,
+            isLatest = laps.firstOrNull()?.lapNumber == lap.lapNumber,
+            accentColor = accentColor
+            )
         }
+    }
+    }
     }
 }
 
@@ -98,10 +117,18 @@ private fun DualChronographDial(
     themeConfig: com.necromagik.pureclock.ui.theme.PureClockThemeConfig
 ) {
     val totalSeconds = elapsedMillis / 1000f
-    val mainAngle = (totalSeconds % 60f) * 6f
+    val mainAngle by animateFloatAsState(
+        targetValue = (totalSeconds % 60f) * 6f,
+        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
+        label = "MainHandSmooth"
+    )
 
     val lapSeconds = currentLapMillis / 1000f
-    val subAngle = (lapSeconds % 60f) * 6f
+    val subAngle by animateFloatAsState(
+        targetValue = (lapSeconds % 60f) * 6f,
+        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
+        label = "SubHandSmooth"
+    )
 
     val formattedMainTime = remember(elapsedMillis) {
         val minutes = (elapsedMillis / 60000) % 60
@@ -113,103 +140,102 @@ private fun DualChronographDial(
     Box(
         modifier = Modifier
             .size(290.dp)
-            .pure3DEffect(
-                shape = CircleShape,
-                accentColor = if (isRunning) accentColor else Color.DarkGray,
-                depthDp = themeConfig.depthIntensityDp,
-                is3dEnabled = themeConfig.is3dEnabled,
-                isGlowEnabled = isRunning && themeConfig.isGlowEnabled,
-                surfaceColor = MaterialTheme.colorScheme.surface
-            ),
-        contentAlignment = Alignment.Center
+    .pure3DEffect(
+        shape = CircleShape,
+    accentColor = if (isRunning) accentColor else Color.DarkGray,
+    depthDp = themeConfig.depthIntensityDp,
+    is3dEnabled = themeConfig.is3dEnabled,
+    isGlowEnabled = isRunning && themeConfig.isGlowEnabled,
+    surfaceColor = MaterialTheme.colorScheme.surface
+    ),
+    contentAlignment = Alignment.Center
     ) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (isRunning) Modifier.breathingGlow(accentColor, minAlpha = 0.03f, maxAlpha = 0.12f) else Modifier)
+        .then(if (isRunning) Modifier.breathingGlow(accentColor, minAlpha = 0.04f, maxAlpha = 0.16f) else Modifier)
         ) {
-            val center = this.center
-            val outerRadius = size.minDimension / 2f - 16.dp.toPx()
+        val center = this.center
+        val outerRadius = size.minDimension / 2f - 16.dp.toPx()
 
-            // Внешний циферблат
-            for (i in 0 until 60) {
-                val angle = Math.toRadians((i * 6).toDouble())
-                val isMajor = i % 5 == 0
-                val lineLength = if (isMajor) 14.dp.toPx() else 6.dp.toPx()
-                val strokeW = if (isMajor) 3.dp.toPx() else 1.5.dp.toPx()
+        for (i in 0 until 60) {
+            val angle = Math.toRadians((i * 6).toDouble())
+            val isMajor = i % 5 == 0
+            val lineLength = if (isMajor) 14.dp.toPx() else 6.dp.toPx()
+            val strokeW = if (isMajor) 3.dp.toPx() else 1.5.dp.toPx()
 
-                val startX = (center.x + (outerRadius - lineLength) * sin(angle)).toFloat()
-                val startY = (center.y - (outerRadius - lineLength) * cos(angle)).toFloat()
-                val endX = (center.x + outerRadius * sin(angle)).toFloat()
-                val endY = (center.y - outerRadius * cos(angle)).toFloat()
+            val startX = (center.x + (outerRadius - lineLength) * sin(angle)).toFloat()
+            val startY = (center.y - (outerRadius - lineLength) * cos(angle)).toFloat()
+            val endX = (center.x + outerRadius * sin(angle)).toFloat()
+            val endY = (center.y - outerRadius * cos(angle)).toFloat()
 
-                drawLine(
-                    color = if (isMajor) Color.Gray else Color.Gray.copy(alpha = 0.4f),
-                    start = Offset(startX, startY),
-                    end = Offset(endX, endY),
-                    strokeWidth = strokeW,
-                    cap = StrokeCap.Round
-                )
-            }
-
-            // Вложенный малый циферблат
-            val subCenterY = center.y + 58.dp.toPx()
-            val subRadius = 42.dp.toPx()
-
-            drawCircle(
-                color = Color.Gray.copy(alpha = 0.15f),
-                center = Offset(center.x, subCenterY),
-                radius = subRadius,
-                style = Stroke(width = 2.dp.toPx())
+            drawLine(
+                color = if (isMajor) Color.Gray.copy(alpha = 0.85f) else Color.Gray.copy(alpha = 0.3f),
+                start = Offset(startX, startY),
+            end = Offset(endX, endY),
+            strokeWidth = strokeW,
+            cap = StrokeCap.Round
             )
-
-            rotate(degrees = subAngle, pivot = Offset(center.x, subCenterY)) {
-                drawLine(
-                    color = accentColor,
-                    start = Offset(center.x, subCenterY),
-                    end = Offset(center.x, subCenterY - subRadius + 8.dp.toPx()),
-                    strokeWidth = 3.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-            drawCircle(color = accentColor, center = Offset(center.x, subCenterY), radius = 4.dp.toPx())
-
-            // Главная секундная стрелка
-            rotate(degrees = mainAngle, pivot = center) {
-                drawLine(
-                    color = if (isRunning) accentColor else Color.White,
-                    start = Offset(center.x, center.y + 20.dp.toPx()),
-                    end = Offset(center.x, center.y - outerRadius + 8.dp.toPx()),
-                    strokeWidth = 3.5.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-            drawCircle(color = Color.White, center = center, radius = 6.dp.toPx())
-            drawCircle(color = accentColor, center = center, radius = 3.dp.toPx())
         }
+
+        val subCenterY = center.y + 58.dp.toPx()
+        val subRadius = 42.dp.toPx()
+
+        drawCircle(
+            color = Color.Gray.copy(alpha = 0.15f),
+        center = Offset(center.x, subCenterY),
+        radius = subRadius,
+        style = Stroke(width = 2.dp.toPx())
+        )
+
+        rotate(degrees = subAngle, pivot = Offset(center.x, subCenterY)) {
+            drawLine(
+                color = accentColor.copy(alpha = 0.9f),
+                start = Offset(center.x, subCenterY),
+            end = Offset(center.x, subCenterY - subRadius + 8.dp.toPx()),
+            strokeWidth = 2.5.dp.toPx(),
+            cap = StrokeCap.Round
+            )
+        }
+        drawCircle(color = accentColor, center = Offset(center.x, subCenterY), radius = 3.5.dp.toPx())
+
+        rotate(degrees = mainAngle, pivot = center) {
+            drawLine(
+                color = if (isRunning) accentColor else Color.White,
+            start = Offset(center.x, center.y + 22.dp.toPx()),
+            end = Offset(center.x, center.y - outerRadius + 8.dp.toPx()),
+            strokeWidth = 3.5.dp.toPx(),
+            cap = StrokeCap.Round
+            )
+        }
+        drawCircle(color = Color.White, center = center, radius = 5.5.dp.toPx())
+        drawCircle(color = accentColor, center = center, radius = 2.5.dp.toPx())
+    }
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.offset(y = (-42).dp)
+        modifier = Modifier.offset(y = (-42).dp)
         ) {
-            Text(
-                text = formattedMainTime,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
+        RollingStopwatchTimeText(
+            formattedTime = formattedMainTime,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
     }
 }
 
 @Composable
 private fun LapItemCard(
-    lap: LapRecord
+    lap: LapRecord,
+isLatest: Boolean,
+accentColor: Color
 ) {
     val statusColor = when (lap.type) {
         LapType.BEST -> Color(0xFF00E676)
-        LapType.WORST -> Color(0xFFFF5252)
-        LapType.NEUTRAL -> Color.White
+            LapType.WORST -> Color(0xFFFF5252)
+            LapType.NEUTRAL -> if (isLatest) accentColor else Color.White
     }
 
     val formattedLapTime = remember(lap.lapTimeMillis) {
@@ -226,52 +252,121 @@ private fun LapItemCard(
         String.format(Locale.ROOT, "%02d:%02d,%02d", minutes, seconds, millis)
     }
 
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                width = if (lap.type != LapType.NEUTRAL) 1.5.dp else 0.dp,
-                color = if (lap.type != LapType.NEUTRAL) statusColor.copy(alpha = 0.6f) else Color.Transparent,
-                shape = RoundedCornerShape(16.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                brush = Brush.horizontalGradient(
+                    colors = if (isLatest) {
+                        listOf(accentColor.copy(alpha = 0.15f), MaterialTheme.colorScheme.surface)
+                    } else {
+                        listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surface)
+                    }
+                )
             )
+            .border(
+                width = if (isLatest || lap.type != LapType.NEUTRAL) 1.5.dp else 1.dp,
+                color = when {
+                    lap.type == LapType.BEST -> Color(0xFF00E676).copy(alpha = 0.7f)
+                    lap.type == LapType.WORST -> Color(0xFFFF5252).copy(alpha = 0.7f)
+                    isLatest -> accentColor.copy(alpha = 0.5f)
+                    else -> Color.White.copy(alpha = 0.06f)
+                },
+                shape = RoundedCornerShape(18.dp)
+            )
+            .padding(horizontal = 16.dp, vertical = 13.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(statusColor)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = String.format(Locale.ROOT, "%02d", lap.lapNumber),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = statusColor
-                )
-            }
-
-            Text(
-                text = formattedLapTime,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = statusColor
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+            .background(statusColor)
             )
-
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = formattedTotalTime,
+                text = String.format(Locale.ROOT, "#%02d", lap.lapNumber),
                 fontSize = 14.sp,
-                color = Color.Gray
+            fontWeight = FontWeight.ExtraBold,
+            color = statusColor
             )
+        }
+
+        Text(
+            text = formattedLapTime,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Bold,
+        color = statusColor
+        )
+
+        Text(
+            text = formattedTotalTime,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        color = Color.Gray
+        )
+    }
+    }
+}
+
+// ============================================================================
+// БАРАБАННЫЙ НАКАТ ДЛЯ ЦИФР СЕКУНДОМЕРА
+// ============================================================================
+@Composable
+private fun RollingStopwatchTimeText(
+    formattedTime: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fontWeight: FontWeight = FontWeight.Bold,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        formattedTime.forEachIndexed { index, char ->
+            if (char == ':' || char == ',') {
+                Text(
+                    text = char.toString(),
+                    fontSize = fontSize,
+                    fontWeight = fontWeight,
+                    color = color.copy(alpha = 0.5f)
+                )
+            } else {
+                AnimatedContent(
+                    targetState = char,
+                    transitionSpec = {
+                        (slideInVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) { -it } + fadeIn()).togetherWith(
+                            slideOutVertically(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ) { it } + fadeOut()
+                        )
+                    },
+                    label = "StopwatchRoll_$index"
+                ) { targetChar ->
+                    Text(
+                        text = targetChar.toString(),
+                        fontSize = fontSize,
+                        fontWeight = fontWeight,
+                        color = color
+                    )
+                }
+            }
         }
     }
 }

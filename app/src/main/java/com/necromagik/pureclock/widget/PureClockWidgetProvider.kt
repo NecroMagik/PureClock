@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.necromagik.pureclock.MainActivity
 import com.necromagik.pureclock.data.repository.WidgetConfigRepository
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -55,6 +56,10 @@ class PureClockWidgetProvider : AppWidgetProvider() {
             action == Intent.ACTION_TIMEZONE_CHANGED ||
             action == Intent.ACTION_DATE_CHANGED ||
             action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_USER_PRESENT ||
+            action == Intent.ACTION_USER_FOREGROUND ||
+            action == Intent.ACTION_USER_UNLOCKED ||
+            action == Intent.ACTION_SCREEN_ON ||
             action == AppWidgetManager.ACTION_APPWIDGET_UPDATE
         ) {
             val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -70,7 +75,6 @@ class PureClockWidgetProvider : AppWidgetProvider() {
                 Log.w(TAG, "--> [onReceive] Список виджетов пуст (ids is null or empty)!")
             }
 
-            // Перепланируем будильник на следующую 00-ю секунду
             scheduleWidgetUpdates(context)
         } else {
             Log.v(TAG, "--> [onReceive] Пропущен интент $action (не входит в фильтр)")
@@ -127,6 +131,7 @@ class PureClockWidgetProvider : AppWidgetProvider() {
         const val TAG = "PureClock_WIDGET_DEBUG"
         const val ACTION_WIDGET_UPDATE_TICK = "com.necromagik.pureclock.ACTION_WIDGET_UPDATE_TICK"
         private const val WIDGET_ALARM_REQUEST_CODE = 4004
+        private const val WIDGET_SHOW_REQUEST_CODE = 4005
 
         private fun formatTime(millis: Long): String {
             val sdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT)
@@ -167,24 +172,30 @@ class PureClockWidgetProvider : AppWidgetProvider() {
             Log.i(TAG, "==> [Schedule] Планирование тика на ${formatTime(nextTickMillis)} (через ${String.format(Locale.ROOT, "%.2f", delaySec)} сек / ${delayMs}мс)")
 
             try {
+                // AlarmClockInfo — единственный тип аларма, который Android не сбрасывает в фоновом профиле
+                val showIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                val showPendingIntent = PendingIntent.getActivity(
+                    context,
+                    WIDGET_SHOW_REQUEST_CODE,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                val alarmClockInfo = AlarmManager.AlarmClockInfo(nextTickMillis, showPendingIntent)
+                alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+                Log.v(TAG, "--> [Schedule] Вызван AlarmManager.setAlarmClock (иммунитет к смене профиля)")
+            } catch (e: Exception) {
+                Log.w(TAG, "--> [Schedule WARN] setAlarmClock отклонен (${e.message}), резервный setExactAndAllowWhileIdle()")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setExactAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
                         nextTickMillis,
                         pendingIntent
                     )
-                    Log.v(TAG, "--> [Schedule] Вызван AlarmManager.setExactAndAllowWhileIdle")
                 } else {
-                    alarmManager.setExact(
-                        AlarmManager.RTC_WAKEUP,
-                        nextTickMillis,
-                        pendingIntent
-                    )
-                    Log.v(TAG, "--> [Schedule] Вызван AlarmManager.setExact")
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, nextTickMillis, pendingIntent)
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "--> [Schedule WARN] Точный аларм отклонен (${e.message}), ставим обычный set()")
-                alarmManager.set(AlarmManager.RTC_WAKEUP, nextTickMillis, pendingIntent)
             }
         }
     }

@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.AlarmCalendarView
+import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.components.TwentyFourHourDial
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
@@ -453,10 +454,9 @@ fun AddEditAlarmScreen(
                 headlineContent = { Text("Вибрация", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface) },
             leadingContent = { Icon(Icons.Default.Vibration, contentDescription = null, tint = accentColor) },
             trailingContent = {
-                Switch(
+                PureSwitch(
                     checked = isVibrate,
-                onCheckedChange = { isVibrate = it },
-                colors = SwitchDefaults.colors(checkedTrackColor = accentColor)
+                    onCheckedChange = { isVibrate = it }
                 )
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
