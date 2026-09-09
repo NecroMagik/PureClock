@@ -13,13 +13,14 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
 
-        // Обрабатываем перезагрузку, обновление пакета и смену времени/часового пояса
+        // Обрабатываем только события загрузки и обновления пакета.
+        // Смена времени/пояса обрабатывается системными интентами напрямую в AlarmReceiver/WidgetProvider.
         if (action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
-            action == Intent.ACTION_TIME_CHANGED ||
-            action == Intent.ACTION_TIMEZONE_CHANGED
+            action == "android.intent.action.QUICKBOOT_POWERON"
         ) {
-            // Держим BroadcastReceiver активным для фоновых операций
+            // Безопасно продлеваем жизнь BroadcastReceiver для работы с Room в фоне
             val pendingResult = goAsync()
 
             CoroutineScope(Dispatchers.IO).launch {
@@ -27,16 +28,14 @@ class BootReceiver : BroadcastReceiver() {
                     val db = AppDatabase.getDatabase(context)
                     val scheduler = AlarmScheduler(context)
 
-                    // Вычитываем все активные будильники из Room
+                    // Восстанавливаем только через AlarmManager (никаких startForegroundService!)
                     val enabledAlarms = db.alarmDao().getEnabledAlarmsSync()
-
                     enabledAlarms.forEach { alarm ->
                         scheduler.schedule(alarm)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 } finally {
-                    // Вызывается СТРОГО один раз при завершении всех операций
                     pendingResult.finish()
                 }
             }

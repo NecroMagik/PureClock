@@ -40,7 +40,7 @@ import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
 import com.necromagik.pureclock.ui.components.PureSwitch
 
-private const val APP_VERSION = "v1.27a"
+private const val APP_VERSION = "v1.28"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
