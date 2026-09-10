@@ -2,14 +2,16 @@ package com.necromagik.pureclock.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import androidx.compose.ui.graphics.Color
+import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.necromagik.pureclock.ui.theme.AppThemeStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -33,15 +35,16 @@ data class ThemeState(
     val themeMode: String = "SYSTEM",
     val isPureMonocolor: Boolean = true,
     val accentColorHex: String = "#00E676",
-    val cardCornerRadiusDp: Int = 24,
+    val cardCornerRadiusDp: Int = 20,
     val is3DEffectsEnabled: Boolean = true,
     val isNeonGlowEnabled: Boolean = true,
     val depthIntensityDp: Int = 8
 )
 
 class SettingsManager private constructor(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
-        context.applicationContext.getSharedPreferences("pure_clock_settings", Context.MODE_PRIVATE)
+        appContext.getSharedPreferences("pure_clock_settings", Context.MODE_PRIVATE)
 
     companion object {
         private const val KEY_ANALOG_STYLE = "analog_clock_style"
@@ -51,6 +54,7 @@ class SettingsManager private constructor(context: Context) {
         private const val KEY_ACCENT_COLOR = "accent_color"
         private const val KEY_CARD_CORNER_RADIUS = "card_corner_radius"
         private const val KEY_SAVED_CITY_IDS = "saved_city_ids"
+        private const val KEY_ALLOW_BETA_UPDATES = "allow_beta_updates"
 
         private const val KEY_3D_EFFECTS = "is_3d_effects_enabled"
         private const val KEY_NEON_GLOW = "is_neon_glow_enabled"
@@ -71,7 +75,7 @@ class SettingsManager private constructor(context: Context) {
             themeMode = prefs.getString(KEY_THEME_MODE, "SYSTEM") ?: "SYSTEM",
             isPureMonocolor = prefs.getBoolean(KEY_PURE_MONOCOLOR, true),
             accentColorHex = prefs.getString(KEY_ACCENT_COLOR, "#00E676") ?: "#00E676",
-            cardCornerRadiusDp = prefs.getInt(KEY_CARD_CORNER_RADIUS, 24),
+            cardCornerRadiusDp = prefs.getInt(KEY_CARD_CORNER_RADIUS, 20),
             is3DEffectsEnabled = prefs.getBoolean(KEY_3D_EFFECTS, true),
             isNeonGlowEnabled = prefs.getBoolean(KEY_NEON_GLOW, true),
             depthIntensityDp = prefs.getInt(KEY_DEPTH_INTENSITY, 8)
@@ -79,7 +83,64 @@ class SettingsManager private constructor(context: Context) {
     )
     val themeState: StateFlow<ThemeState> = _themeState.asStateFlow()
 
-    // --- СТИЛИ ЧАСОВ ---
+    private val _isVolumeRampEnabled = MutableStateFlow(prefs.getBoolean("alarm_volume_ramp", true))
+    val isVolumeRampEnabledFlow: StateFlow<Boolean> = _isVolumeRampEnabled.asStateFlow()
+
+    private val _defaultSnoozeTimeMinutes = MutableStateFlow(prefs.getInt("alarm_default_snooze_min", 10))
+    val defaultSnoozeTimeMinutesFlow: StateFlow<Int> = _defaultSnoozeTimeMinutes.asStateFlow()
+
+    private val _autoDismissMinutes = MutableStateFlow(prefs.getInt("alarm_auto_dismiss_min", 15))
+    val autoDismissMinutesFlow: StateFlow<Int> = _autoDismissMinutes.asStateFlow()
+
+    private val _upcomingNotificationMinutes = MutableStateFlow(prefs.getInt("alarm_upcoming_notice_min", 30))
+    val upcomingNotificationMinutesFlow: StateFlow<Int> = _upcomingNotificationMinutes.asStateFlow()
+
+    private val _dismissMethod = MutableStateFlow(prefs.getString("alarm_dismiss_method", "SWIPE") ?: "SWIPE")
+    val dismissMethodFlow: StateFlow<String> = _dismissMethod.asStateFlow()
+
+    private val _is24HourFormat = MutableStateFlow(prefs.getBoolean("world_clock_24h", true))
+    val is24HourFormatFlow: StateFlow<Boolean> = _is24HourFormat.asStateFlow()
+
+    private val _isClockHapticsEnabled = MutableStateFlow(prefs.getBoolean("world_clock_haptics", true))
+    val isClockHapticsEnabledFlow: StateFlow<Boolean> = _isClockHapticsEnabled.asStateFlow()
+
+    private val _isTimerVibrate = MutableStateFlow(prefs.getBoolean("timer_vibrate", true))
+    val isTimerVibrateFlow: StateFlow<Boolean> = _isTimerVibrate.asStateFlow()
+
+    private val _isStopwatchLapVibrate = MutableStateFlow(prefs.getBoolean("stopwatch_lap_vibrate", true))
+    val isStopwatchLapVibrateFlow: StateFlow<Boolean> = _isStopwatchLapVibrate.asStateFlow()
+
+    private val _allowBetaUpdates = MutableStateFlow(prefs.getBoolean(KEY_ALLOW_BETA_UPDATES, false))
+    val allowBetaUpdatesFlow: StateFlow<Boolean> = _allowBetaUpdates.asStateFlow()
+
+    private val _isBetaUpdateAvailable = MutableStateFlow(false)
+    val isBetaUpdateAvailableFlow: StateFlow<Boolean> = _isBetaUpdateAvailable.asStateFlow()
+
+    private val _latestBetaRelease = MutableStateFlow<UpdateChecker.ReleaseInfo?>(null)
+    val latestBetaReleaseFlow: StateFlow<UpdateChecker.ReleaseInfo?> = _latestBetaRelease.asStateFlow()
+
+    // Приватные поля исключают коллизию сигнатур в байт-коде
+    private val _googlePlayUpdateManager by lazy {
+        GooglePlayUpdateManager(appContext)
+    }
+
+    private val _ruStoreUpdateManager by lazy {
+        RuStoreUpdateManager(appContext)
+    }
+
+    fun getGooglePlayUpdateManager(): GooglePlayUpdateManager = _googlePlayUpdateManager
+    fun getRuStoreUpdateManager(): RuStoreUpdateManager = _ruStoreUpdateManager
+
+    suspend fun checkGooglePlayInAppUpdates(): AppUpdateInfo? {
+        if (getInstallationSource() != InstallSource.GOOGLE_PLAY) return null
+        return _googlePlayUpdateManager.checkUpdateAvailability()
+    }
+
+    suspend fun checkRuStoreInAppUpdates(): Boolean {
+        if (getInstallationSource() != InstallSource.RUSTORE) return false
+        return _ruStoreUpdateManager.checkUpdateAvailability() != null
+    }
+
     var selectedAnalogStyle: AnalogStyle
         get() {
             val name = prefs.getString(KEY_ANALOG_STYLE, AnalogStyle.OXYGEN.name)
@@ -98,48 +159,111 @@ class SettingsManager private constructor(context: Context) {
         get() = prefs.getStringSet(KEY_SAVED_CITY_IDS, setOf("UTC", "Europe/Moscow")) ?: setOf("UTC", "Europe/Moscow")
         set(value) = prefs.edit().putStringSet(KEY_SAVED_CITY_IDS, value).apply()
 
-    // --- ОПТИМИЗИРОВАННЫЕ НАСТРОЙКИ (Асинхронная запись через apply) ---
     var is24HourFormat: Boolean
-        get() = prefs.getBoolean("world_clock_24h", true)
-        set(value) { prefs.edit().putBoolean("world_clock_24h", value).apply() }
+        get() = _is24HourFormat.value
+        set(value) {
+            _is24HourFormat.value = value
+            prefs.edit().putBoolean("world_clock_24h", value).apply()
+        }
 
     var isClockHapticsEnabled: Boolean
-        get() = prefs.getBoolean("world_clock_haptics", true)
-        set(value) { prefs.edit().putBoolean("world_clock_haptics", value).apply() }
+        get() = _isClockHapticsEnabled.value
+        set(value) {
+            _isClockHapticsEnabled.value = value
+            prefs.edit().putBoolean("world_clock_haptics", value).apply()
+        }
 
     var isDigitalClockMode: Boolean
         get() = prefs.getBoolean("world_clock_is_digital", false)
         set(value) { prefs.edit().putBoolean("world_clock_is_digital", value).apply() }
 
     var isVolumeRampEnabled: Boolean
-        get() = prefs.getBoolean("alarm_volume_ramp", true)
-        set(value) { prefs.edit().putBoolean("alarm_volume_ramp", value).apply() }
+        get() = _isVolumeRampEnabled.value
+        set(value) {
+            _isVolumeRampEnabled.value = value
+            prefs.edit().putBoolean("alarm_volume_ramp", value).apply()
+        }
 
     var upcomingNotificationMinutes: Int
-        get() = prefs.getInt("alarm_upcoming_notice_min", 30)
-        set(value) { prefs.edit().putInt("alarm_upcoming_notice_min", value).apply() }
+        get() = _upcomingNotificationMinutes.value
+        set(value) {
+            _upcomingNotificationMinutes.value = value
+            prefs.edit().putInt("alarm_upcoming_notice_min", value).apply()
+        }
 
     var defaultSnoozeTimeMinutes: Int
-        get() = prefs.getInt("alarm_default_snooze_min", 10)
-        set(value) { prefs.edit().putInt("alarm_default_snooze_min", value).apply() }
+        get() = _defaultSnoozeTimeMinutes.value
+        set(value) {
+            _defaultSnoozeTimeMinutes.value = value
+            prefs.edit().putInt("alarm_default_snooze_min", value).apply()
+        }
 
     var autoDismissMinutes: Int
-        get() = prefs.getInt("alarm_auto_dismiss_min", 15)
-        set(value) { prefs.edit().putInt("alarm_auto_dismiss_min", value).apply() }
+        get() = _autoDismissMinutes.value
+        set(value) {
+            _autoDismissMinutes.value = value
+            prefs.edit().putInt("alarm_auto_dismiss_min", value).apply()
+        }
 
     var dismissMethod: String
-        get() = prefs.getString("alarm_dismiss_method", "SWIPE") ?: "SWIPE"
-        set(value) { prefs.edit().putString("alarm_dismiss_method", value).apply() }
+        get() = _dismissMethod.value
+        set(value) {
+            _dismissMethod.value = value
+            prefs.edit().putString("alarm_dismiss_method", value).apply()
+        }
 
     var isTimerVibrate: Boolean
-        get() = prefs.getBoolean("timer_vibrate", true)
-        set(value) { prefs.edit().putBoolean("timer_vibrate", value).apply() }
+        get() = _isTimerVibrate.value
+        set(value) {
+            _isTimerVibrate.value = value
+            prefs.edit().putBoolean("timer_vibrate", value).apply()
+        }
 
     var isStopwatchLapVibrate: Boolean
-        get() = prefs.getBoolean("stopwatch_lap_vibrate", true)
-        set(value) { prefs.edit().putBoolean("stopwatch_lap_vibrate", value).apply() }
+        get() = _isStopwatchLapVibrate.value
+        set(value) {
+            _isStopwatchLapVibrate.value = value
+            prefs.edit().putBoolean("stopwatch_lap_vibrate", value).apply()
+        }
 
-    // --- ТЕМАТИЗАЦИЯ ВЫСОКОЙ СКОРОСТИ ---
+    var allowBetaUpdates: Boolean
+        get() = _allowBetaUpdates.value
+        set(value) {
+            _allowBetaUpdates.value = value
+            prefs.edit().putBoolean(KEY_ALLOW_BETA_UPDATES, value).apply()
+        }
+
+    fun setBetaUpdateInfo(release: UpdateChecker.ReleaseInfo?) {
+        _latestBetaRelease.value = release
+        _isBetaUpdateAvailable.value = release != null
+    }
+
+    fun getInstallationSource(): InstallSource {
+        return try {
+            val packageName = appContext.packageName
+            val installerPackageName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                appContext.packageManager.getInstallSourceInfo(packageName).installingPackageName
+            } else {
+                @Suppress("DEPRECATION")
+                appContext.packageManager.getInstallerPackageName(packageName)
+            }
+
+            when (installerPackageName) {
+                "com.android.vending" -> InstallSource.GOOGLE_PLAY
+                "ru.rustore" -> InstallSource.RUSTORE
+                else -> InstallSource.UNKNOWN_OR_GITHUB
+            }
+        } catch (_: Exception) {
+            InstallSource.UNKNOWN_OR_GITHUB
+        }
+    }
+
+    enum class InstallSource(val title: String, val isOfficial: Boolean) {
+        GOOGLE_PLAY("Официальная сборка (Google Play)", true),
+        RUSTORE("Официальная сборка (RuStore)", true),
+        UNKNOWN_OR_GITHUB("Неизвестный источник / GitHub", false)
+    }
+
     var themeMode: String
         get() = prefs.getString(KEY_THEME_MODE, "SYSTEM") ?: "SYSTEM"
         set(value) {
@@ -169,7 +293,7 @@ class SettingsManager private constructor(context: Context) {
         }
 
     var cardCornerRadiusDp: Int
-        get() = prefs.getInt(KEY_CARD_CORNER_RADIUS, 24)
+        get() = prefs.getInt(KEY_CARD_CORNER_RADIUS, 20)
         set(value) {
             prefs.edit().putInt(KEY_CARD_CORNER_RADIUS, value).apply()
             _themeState.value = _themeState.value.copy(cardCornerRadiusDp = value)
@@ -208,33 +332,76 @@ class SettingsManager private constructor(context: Context) {
     }
 
     object UpdateChecker {
-        private const val GITHUB_API_URL = "https://api.github.com/repos/NecroMagik/PureClock/releases/latest"
+        private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/NecroMagik/PureClock/releases"
+        const val BETA_BRANCH_URL = "https://github.com/NecroMagik/PureClock/tree/beta"
 
         data class ReleaseInfo(
             val tagName: String,
             val downloadUrl: String,
-            val body: String
+            val body: String,
+            val isBeta: Boolean
         )
 
-        suspend fun checkForUpdates(currentVersion: String): ReleaseInfo? = withContext(Dispatchers.IO) {
+        data class ParsedVersion(
+            val major: Int,
+            val iteration: Int,
+            val minor: Int,
+            val letterSuffix: Char? = null
+        ) : Comparable<ParsedVersion> {
+
+            override fun compareTo(other: ParsedVersion): Int {
+                if (this.major != other.major) return this.major.compareTo(other.major)
+                if (this.iteration != other.iteration) return this.iteration.compareTo(other.iteration)
+                if (this.minor != other.minor) return this.minor.compareTo(other.minor)
+
+                return when {
+                    this.letterSuffix == null && other.letterSuffix == null -> 0
+                    this.letterSuffix != null && other.letterSuffix == null -> 1
+                    this.letterSuffix == null && other.letterSuffix != null -> -1
+                    else -> this.letterSuffix!!.compareTo(other.letterSuffix!!)
+                }
+            }
+        }
+
+        fun parseVersion(raw: String): ParsedVersion? {
+            val cleaned = raw.trim().removePrefix("v").removePrefix("V")
+            val regex = Regex("""^(\d+)\.(\d)(\d+)([a-zA-Z])?$""")
+            val match = regex.find(cleaned) ?: return null
+
+            val major = match.groupValues[1].toIntOrNull() ?: 1
+            val iteration = match.groupValues[2].toIntOrNull() ?: 0
+            val minor = match.groupValues[3].toIntOrNull() ?: 0
+            val suffix = match.groupValues.getOrNull(4)?.firstOrNull()?.lowercaseChar()
+
+            return ParsedVersion(major, iteration, minor, suffix)
+        }
+
+        suspend fun checkForBetaUpdates(currentVersion: String): ReleaseInfo? = withContext(Dispatchers.IO) {
             try {
-                val url = URL(GITHUB_API_URL)
+                val currentParsed = parseVersion(currentVersion) ?: return@withContext null
+
+                val url = URL(GITHUB_RELEASES_URL)
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
 
                 if (connection.responseCode == 200) {
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(response)
-                    val latestTag = json.getString("tag_name")
+                    val jsonArray = JSONArray(response)
 
-                    // Если версия на GitHub отличается от текущей
-                    if (latestTag != currentVersion) {
-                        val assets = json.getJSONArray("assets")
-                        if (assets.length() > 0) {
-                            val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
-                            val changelog = json.optString("body", "Новая версия доступна!")
-                            return@withContext ReleaseInfo(latestTag, downloadUrl, changelog)
+                    for (i in 0 until jsonArray.length()) {
+                        val json = jsonArray.getJSONObject(i)
+                        val tagName = json.getString("tag_name")
+                        val remoteParsed = parseVersion(tagName) ?: continue
+
+                        val isBeta = remoteParsed.letterSuffix != null
+                        if (isBeta && remoteParsed > currentParsed) {
+                            val assets = json.getJSONArray("assets")
+                            if (assets.length() > 0) {
+                                val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
+                                val changelog = json.optString("body", "Новая бета-версия доступна!")
+                                return@withContext ReleaseInfo(tagName, downloadUrl, changelog, isBeta = true)
+                            }
                         }
                     }
                 }

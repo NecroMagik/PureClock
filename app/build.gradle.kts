@@ -12,8 +12,8 @@ android {
         applicationId = "com.necromagik.pureclock"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1.2.toInt()
-        versionName = "v1.28"
+        versionCode = 129
+        versionName = "v1.29a"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -101,4 +101,10 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // --- ОБНОВЛЕНИЯ (Google Play & RuStore) ---
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    //implementation(platform("ru.rustore.sdk:bom:2026.08.01"))
+    //implementation("ru.rustore.sdk:appupdate")
 }

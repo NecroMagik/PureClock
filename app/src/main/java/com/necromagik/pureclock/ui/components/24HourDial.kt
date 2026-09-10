@@ -4,8 +4,11 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
@@ -13,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -31,14 +35,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.necromagik.pureclock.ui.animation.bounceClick
 import java.util.Locale
 import kotlin.math.*
 
 enum class DialMode { HOURS, MINUTES }
 
-// ============================================================================
-// СЕКЦИЯ 1: ИНТЕРАКТИВНЫЙ 24-ЧАСОВОЙ ЦИФЕРБЛАТ ВЫБОРА ВРЕМЕНИ
-// ============================================================================
 @Composable
 fun TwentyFourHourDial(
     selectedHour: Int,
@@ -46,7 +48,7 @@ fun TwentyFourHourDial(
     onHourSelected: (Int) -> Unit,
     onMinuteSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    dialSize: Dp = 290.dp
+    dialSize: Dp = 280.dp
 ) {
     var mode by remember { mutableStateOf(DialMode.HOURS) }
     var isKeyboardInputMode by remember { mutableStateOf(false) }
@@ -54,16 +56,12 @@ fun TwentyFourHourDial(
     val view = LocalView.current
     val accentColor = MaterialTheme.colorScheme.primary
     val textMeasurer = rememberTextMeasurer()
-
-    var dragAngle by remember { mutableFloatStateOf(0f) }
-    var isDragging by remember { mutableStateOf(false) }
-    var isInnerRingLocked by remember { mutableStateOf(false) }
-
     val focusRequester = remember { FocusRequester() }
 
-    val currentHandAngle = if (isDragging) {
-        dragAngle
-    } else {
+    var isInnerRingLocked by remember { mutableStateOf(false) }
+
+    // Расчёт текущего угла стрелки: всегда строго указывает на активное значение без задержек
+    val currentHandAngle = remember(mode, selectedHour, selectedMinute) {
         if (mode == DialMode.HOURS) {
             val hour12 = selectedHour % 12
             (hour12 * 30f) - 90f
@@ -72,366 +70,349 @@ fun TwentyFourHourDial(
         }
     }
 
-    LaunchedEffect(isKeyboardInputMode) {
-        if (isKeyboardInputMode) {
-            focusRequester.requestFocus()
-        }
-    }
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier.fillMaxWidth()
     ) {
-// ============================================================================
-// СЕКЦИЯ 2: ШАПКА ВЫБОРА (ЦИФРОВОЕ ТАБЛО И КНОПКА КЛАВИАТУРЫ)
-// ============================================================================
-        Box(
+        // Шапка с табло времени
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.Center
+                .padding(vertical = 4.dp)
         ) {
             if (isKeyboardInputMode) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    var hourText by remember(selectedHour) {
-                        mutableStateOf(String.format(Locale.ROOT, "%02d", selectedHour))
-                    }
-                    var minuteText by remember(selectedMinute) {
-                        mutableStateOf(String.format(Locale.ROOT, "%02d", selectedMinute))
-                    }
+                var hourStr by remember(selectedHour) { mutableStateOf("%02d".format(selectedHour)) }
+                var minStr by remember(selectedMinute) { mutableStateOf("%02d".format(selectedMinute)) }
 
-                    OutlinedTextField(
-                        value = hourText,
-                        onValueChange = { newValue ->
-                            if (newValue.length <= 2 && newValue.all { it.isDigit() }) {
-                                hourText = newValue
-                                val h = newValue.toIntOrNull()
-                                if (h != null && h in 0..23) onHourSelected(h)
-                            }
-                        },
-                        modifier = Modifier
-                            .width(80.dp)
-                            .focusRequester(focusRequester),
-                        textStyle = TextStyle(
-                            fontSize = 44.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = accentColor,
-                            textAlign = TextAlign.Center
-                        ),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = accentColor,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
-                    )
-
-                    Text(
-                        text = ":",
-                        fontSize = 44.sp,
+                OutlinedTextField(
+                    value = hourStr,
+                    onValueChange = {
+                        if (it.length <= 2 && it.all { c -> c.isDigit() }) {
+                            hourStr = it
+                            it.toIntOrNull()?.takeIf { h -> h in 0..23 }?.let(onHourSelected)
+                        }
+                    },
+                    modifier = Modifier
+                        .width(86.dp)
+                        .focusRequester(focusRequester),
+                    textStyle = TextStyle(
+                        fontSize = 46.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Gray,
-                        modifier = Modifier.padding(horizontal = 2.dp)
-                    )
+                        color = accentColor,
+                        textAlign = TextAlign.Center
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(16.dp)
+                )
 
-                    OutlinedTextField(
-                        value = minuteText,
-                        onValueChange = { newValue ->
-                            if (newValue.length <= 2 && newValue.all { it.isDigit() }) {
-                                minuteText = newValue
-                                val m = newValue.toIntOrNull()
-                                if (m != null && m in 0..59) onMinuteSelected(m)
-                            }
-                        },
-                        modifier = Modifier.width(80.dp),
-                        textStyle = TextStyle(
-                            fontSize = 44.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        ),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = accentColor,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
+                Text(
+                    ":",
+                    fontSize = 42.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(horizontal = 6.dp)
+                )
+
+                OutlinedTextField(
+                    value = minStr,
+                    onValueChange = {
+                        if (it.length <= 2 && it.all { c -> c.isDigit() }) {
+                            minStr = it
+                            it.toIntOrNull()?.takeIf { m -> m in 0..59 }?.let(onMinuteSelected)
+                        }
+                    },
+                    modifier = Modifier.width(86.dp),
+                    textStyle = TextStyle(
+                        fontSize = 46.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(16.dp)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (mode == DialMode.HOURS) accentColor.copy(alpha = 0.18f) else Color.Transparent)
+                        .clickable { mode = DialMode.HOURS }
+                        .bounceClick()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "%02d".format(selectedHour),
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (mode == DialMode.HOURS) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+
+                Text(":", fontSize = 42.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (mode == DialMode.MINUTES) accentColor.copy(alpha = 0.18f) else Color.Transparent)
+                        .clickable { mode = DialMode.MINUTES }
+                        .bounceClick()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = String.format(Locale.ROOT, "%02d", selectedHour),
-                        fontSize = 52.sp,
+                        text = "%02d".format(selectedMinute),
+                        fontSize = 48.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (mode == DialMode.HOURS) accentColor else Color.Gray,
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .pointerInput(Unit) { detectTapGestures { mode = DialMode.HOURS } }
-                    )
-                    Text(
-                        text = ":",
-                        fontSize = 52.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = String.format(Locale.ROOT, "%02d", selectedMinute),
-                        fontSize = 52.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (mode == DialMode.MINUTES) accentColor else Color.Gray,
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .pointerInput(Unit) { detectTapGestures { mode = DialMode.MINUTES } }
+                        color = if (mode == DialMode.MINUTES) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
             }
 
+            Spacer(modifier = Modifier.width(16.dp))
+
             IconButton(
-                onClick = { isKeyboardInputMode = !isKeyboardInputMode },
-                modifier = Modifier.align(Alignment.CenterEnd)
+                onClick = {
+                    isKeyboardInputMode = !isKeyboardInputMode
+                    if (isKeyboardInputMode) focusRequester.requestFocus()
+                },
+                modifier = Modifier.bounceClick()
             ) {
                 Icon(
-                    imageVector = Icons.Default.Keyboard,
+                    Icons.Default.Keyboard,
                     contentDescription = "Клавиатура",
                     tint = if (isKeyboardInputMode) accentColor else Color.Gray
                 )
             }
         }
 
-// ============================================================================
-// СЕКЦИЯ 3: ОТРИСОВКА И ДРАГ-ОБРАБОТКА АНАЛОГОВОЙ СТРЕЛКИ (CANVAS)
-// ============================================================================
+        Spacer(modifier = Modifier.height(14.dp))
+
         AnimatedVisibility(
             visible = !isKeyboardInputMode,
-            enter = expandVertically(animationSpec = tween(300)) + fadeIn(tween(250)) + scaleIn(initialScale = 0.85f),
-            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(tween(200)) + scaleOut(targetScale = 0.85f)
+            enter = fadeIn() + scaleIn(initialScale = 0.92f),
+            exit = fadeOut() + scaleOut(targetScale = 0.92f)
         ) {
-            AnimatedContent(
-                targetState = mode,
-                transitionSpec = {
-                    (fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.88f)) togetherWith
-                            (fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 1.12f))
-                },
-                label = "HoursToMinutesAnimation"
-            ) { activeMode ->
-                Canvas(
-                    modifier = Modifier
-                        .size(dialSize)
-                        .pointerInput(activeMode, selectedHour, selectedMinute) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val position = event.changes.firstOrNull()?.position ?: continue
-                                    val center = Offset(size.width / 2f, size.height / 2f)
+            Canvas(
+                modifier = Modifier
+                    .size(dialSize)
+                    .pointerInput(mode, selectedHour, selectedMinute) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val position = event.changes.firstOrNull()?.position ?: continue
+                                val center = Offset(size.width / 2f, size.height / 2f)
 
-                                    val dx = position.x - center.x
-                                    val dy = position.y - center.y
-                                    val distance = sqrt(dx * dx + dy * dy)
+                                val dx = position.x - center.x
+                                val dy = position.y - center.y
+                                val distance = sqrt(dx * dx + dy * dy)
 
-                                    val angleDeg = (atan2(dy, dx) * 180 / PI).toFloat()
-                                    var normAngle = angleDeg + 90f
-                                    if (normAngle < 0) normAngle += 360f
+                                val angleDeg = (atan2(dy, dx) * 180 / PI).toFloat()
+                                var normAngle = angleDeg + 90f
+                                if (normAngle < 0) normAngle += 360f
 
-                                    when (event.type) {
-                                        PointerEventType.Press -> {
-                                            isDragging = true
-                                            dragAngle = angleDeg
-                                            isInnerRingLocked = distance < (center.x * 0.62f)
-                                            event.changes.forEach { it.consume() }
+                                when (event.type) {
+                                    PointerEventType.Press -> {
+                                        isInnerRingLocked = distance < (center.x * 0.62f)
+                                        event.changes.forEach { it.consume() }
 
-                                            updateValues(
-                                                mode = activeMode,
-                                                normAngle = normAngle,
-                                                isInner = isInnerRingLocked,
-                                                selectedHour = selectedHour,
-                                                selectedMinute = selectedMinute,
-                                                onHourSelected = onHourSelected,
-                                                onMinuteSelected = onMinuteSelected,
-                                                view = view
-                                            )
-                                        }
+                                        updateValues(
+                                            mode = mode,
+                                            normAngle = normAngle,
+                                            isInner = isInnerRingLocked,
+                                            selectedHour = selectedHour,
+                                            selectedMinute = selectedMinute,
+                                            onHourSelected = onHourSelected,
+                                            onMinuteSelected = onMinuteSelected,
+                                            view = view
+                                        )
+                                    }
 
-                                        PointerEventType.Move -> {
-                                            if (isDragging) {
-                                                dragAngle = angleDeg
-                                                event.changes.forEach { it.consume() }
+                                    PointerEventType.Move -> {
+                                        event.changes.forEach { it.consume() }
 
-                                                if (distance < center.x * 0.45f) isInnerRingLocked = true
-                                                else if (distance > center.x * 0.75f) isInnerRingLocked = false
+                                        if (distance < center.x * 0.48f) isInnerRingLocked = true
+                                        else if (distance > center.x * 0.72f) isInnerRingLocked = false
 
-                                                updateValues(
-                                                    mode = activeMode,
-                                                    normAngle = normAngle,
-                                                    isInner = isInnerRingLocked,
-                                                    selectedHour = selectedHour,
-                                                    selectedMinute = selectedMinute,
-                                                    onHourSelected = onHourSelected,
-                                                    onMinuteSelected = onMinuteSelected,
-                                                    view = view
-                                                )
-                                            }
-                                        }
+                                        updateValues(
+                                            mode = mode,
+                                            normAngle = normAngle,
+                                            isInner = isInnerRingLocked,
+                                            selectedHour = selectedHour,
+                                            selectedMinute = selectedMinute,
+                                            onHourSelected = onHourSelected,
+                                            onMinuteSelected = onMinuteSelected,
+                                            view = view
+                                        )
+                                    }
 
-                                        PointerEventType.Release -> {
-                                            if (isDragging) {
-                                                isDragging = false
-                                                event.changes.forEach { it.consume() }
-
-                                                if (activeMode == DialMode.HOURS) {
-                                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                                    mode = DialMode.MINUTES
-                                                }
-                                            }
+                                    PointerEventType.Release -> {
+                                        event.changes.forEach { it.consume() }
+                                        if (mode == DialMode.HOURS) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                            mode = DialMode.MINUTES
                                         }
                                     }
                                 }
                             }
                         }
-                ) {
-                    val canvasSize = size.width
-                    val center = Offset(canvasSize / 2f, canvasSize / 2f)
-                    val dialRadius = canvasSize / 2f - 2.dp.toPx()
+                    }
+            ) {
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val radius = size.minDimension / 2f
 
-                    val outerRadius = dialRadius - 22.dp.toPx()
-                    val innerRadius = outerRadius * 0.60f
+                val outerRadius = radius * 0.77f
+                val innerRadius = radius * 0.47f
 
-                    drawCircle(color = Color(0xFF141414), radius = dialRadius)
+                // Фон циферблата
+                drawCircle(color = Color(0xFF141414), radius = radius, center = center)
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.08f),
+                    radius = radius,
+                    center = center,
+                    style = Stroke(width = 1.dp.toPx())
+                )
 
-                    drawCircle(
-                        color = Color(0xFF2C2C2E),
-                        radius = dialRadius,
-                        style = Stroke(width = 1.5.dp.toPx())
-                    )
+                // Минутные риски по периметру
+                for (i in 0 until 60) {
+                    val angle = Math.toRadians((i * 6 - 90).toDouble())
+                    val isMajor = i % 5 == 0
+                    val isExactCurrentMinute = mode == DialMode.MINUTES && selectedMinute == i
 
-                    for (i in 0 until 60) {
-                        val angleRad = Math.toRadians((i * 6 - 90).toDouble())
-                        val isMajor = i % 5 == 0
-                        val tickLength = if (isMajor) 6.dp.toPx() else 3.dp.toPx()
-                        val strokeWidth = if (isMajor) 1.5.dp.toPx() else 1.dp.toPx()
-                        val tickColor = if (isMajor) Color(0xFF48484A) else Color(0xFF2C2C2E)
-
-                        val start = Offset(
-                            x = center.x + ((dialRadius - 6.dp.toPx()) * cos(angleRad)).toFloat(),
-                            y = center.y + ((dialRadius - 6.dp.toPx()) * sin(angleRad)).toFloat()
-                        )
-                        val end = Offset(
-                            x = center.x + ((dialRadius - 6.dp.toPx() - tickLength) * cos(angleRad)).toFloat(),
-                            y = center.y + ((dialRadius - 6.dp.toPx() - tickLength) * sin(angleRad)).toFloat()
-                        )
-
-                        drawLine(
-                            color = tickColor,
-                            start = start,
-                            end = end,
-                            strokeWidth = strokeWidth,
-                            cap = StrokeCap.Round
-                        )
+                    val tickLen = when {
+                        isExactCurrentMinute -> 8.dp.toPx()
+                        isMajor -> 5.5.dp.toPx()
+                        else -> 3.dp.toPx()
+                    }
+                    val strokeW = if (isExactCurrentMinute || isMajor) 1.8.dp.toPx() else 1.dp.toPx()
+                    val tickColor = when {
+                        isExactCurrentMinute -> accentColor
+                        isMajor -> Color.Gray.copy(alpha = 0.65f)
+                        else -> Color.DarkGray.copy(alpha = 0.35f)
                     }
 
-                    val isInner = if (activeMode == DialMode.HOURS) {
-                        if (isDragging) isInnerRingLocked else (selectedHour == 0 || selectedHour > 12)
-                    } else false
-
-                    val currentRadius = if (isInner) innerRadius else outerRadius
-
-                    val rad = Math.toRadians(currentHandAngle.toDouble())
-                    val handEnd = Offset(
-                        x = center.x + (currentRadius * cos(rad)).toFloat(),
-                        y = center.y + (currentRadius * sin(rad)).toFloat()
+                    val p1 = Offset(
+                        (center.x + (radius - 4.dp.toPx()) * cos(angle)).toFloat(),
+                        (center.y + (radius - 4.dp.toPx()) * sin(angle)).toFloat()
+                    )
+                    val p2 = Offset(
+                        (center.x + (radius - 4.dp.toPx() - tickLen) * cos(angle)).toFloat(),
+                        (center.y + (radius - 4.dp.toPx() - tickLen) * sin(angle)).toFloat()
                     )
 
                     drawLine(
-                        color = accentColor,
-                        start = center,
-                        end = handEnd,
-                        strokeWidth = 2.dp.toPx()
+                        color = tickColor,
+                        start = p1,
+                        end = p2,
+                        strokeWidth = strokeW,
+                        cap = StrokeCap.Round
                     )
+                }
 
-                    drawCircle(
-                        color = accentColor,
-                        radius = 17.dp.toPx(),
-                        center = handEnd
-                    )
+                val isInner = mode == DialMode.HOURS && (selectedHour == 0 || selectedHour > 12)
+                val handRadius = if (isInner) innerRadius else outerRadius
 
-                    drawCircle(color = accentColor, radius = 4.dp.toPx(), center = center)
+                val rad = Math.toRadians(currentHandAngle.toDouble())
+                val endPos = Offset(
+                    (center.x + handRadius * cos(rad)).toFloat(),
+                    (center.y + handRadius * sin(rad)).toFloat()
+                )
 
-                    if (activeMode == DialMode.HOURS) {
-                        for (i in 1..12) {
-                            val angle = (i * 30 - 90) * (PI / 180)
-                            val pos = Offset(
-                                x = center.x + (outerRadius * cos(angle)).toFloat(),
-                                y = center.y + (outerRadius * sin(angle)).toFloat()
-                            )
-                            val isSelected = selectedHour == i
+                // Линия стрелки
+                drawLine(
+                    color = accentColor,
+                    start = center,
+                    end = endPos,
+                    strokeWidth = 2.dp.toPx()
+                )
+                drawCircle(color = accentColor, radius = 4.dp.toPx(), center = center)
 
-                            drawDialText(
-                                text = "$i",
-                                centerPos = pos,
-                                isSelected = isSelected,
-                                textMeasurer = textMeasurer,
+                if (mode == DialMode.HOURS) {
+                    // Магнитная таблетка-селектор
+                    drawCircle(color = accentColor, radius = 17.dp.toPx(), center = endPos)
+
+                    for (h in 1..12) {
+                        val angle = (h * 30 - 90) * (PI / 180)
+                        val p = Offset(
+                            (center.x + outerRadius * cos(angle)).toFloat(),
+                            (center.y + outerRadius * sin(angle)).toFloat()
+                        )
+                        val isSel = selectedHour == h
+                        val res = textMeasurer.measure(
+                            "$h",
+                            TextStyle(
                                 fontSize = 15.sp,
-                                textColor = if (isSelected) Color.Black else Color.White
+                                fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.Medium,
+                                color = if (isSel) Color.Black else Color.White
                             )
-                        }
+                        )
+                        drawText(res, topLeft = Offset(p.x - res.size.width / 2f, p.y - res.size.height / 2f))
+                    }
 
-                        for (i in 1..12) {
-                            val hourVal = if (i == 12) 0 else i + 12
-                            val angle = (i * 30 - 90) * (PI / 180)
-                            val pos = Offset(
-                                x = center.x + (innerRadius * cos(angle)).toFloat(),
-                                y = center.y + (innerRadius * sin(angle)).toFloat()
-                            )
-                            val isSelected = selectedHour == hourVal
-
-                            drawDialText(
-                                text = String.format(Locale.ROOT, "%02d", hourVal),
-                                centerPos = pos,
-                                isSelected = isSelected,
-                                textMeasurer = textMeasurer,
+                    for (h in 1..12) {
+                        val val24 = if (h == 12) 0 else h + 12
+                        val angle = (h * 30 - 90) * (PI / 180)
+                        val p = Offset(
+                            (center.x + innerRadius * cos(angle)).toFloat(),
+                            (center.y + innerRadius * sin(angle)).toFloat()
+                        )
+                        val isSel = selectedHour == val24
+                        val res = textMeasurer.measure(
+                            "%02d".format(val24),
+                            TextStyle(
                                 fontSize = 12.sp,
-                                textColor = if (isSelected) Color.Black else Color.Gray
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSel) Color.Black else Color.Gray
                             )
-                        }
-                    } else {
-                        for (i in 0 until 12) {
-                            val minVal = i * 5
-                            val angle = (i * 30 - 90) * (PI / 180)
-                            val pos = Offset(
-                                x = center.x + (outerRadius * cos(angle)).toFloat(),
-                                y = center.y + (outerRadius * sin(angle)).toFloat()
-                            )
-                            val isSelected = (selectedMinute / 5) * 5 == minVal
+                        )
+                        drawText(res, topLeft = Offset(p.x - res.size.width / 2f, p.y - res.size.height / 2f))
+                    }
+                } else {
+                    // Статичная разметка 00, 05, 10...55
+                    for (i in 0 until 12) {
+                        val m = i * 5
+                        val angle = (i * 30 - 90) * (PI / 180)
+                        val p = Offset(
+                            (center.x + outerRadius * cos(angle)).toFloat(),
+                            (center.y + outerRadius * sin(angle)).toFloat()
+                        )
+                        val isExactFiveMinute = selectedMinute == m
 
-                            drawDialText(
-                                text = String.format(Locale.ROOT, "%02d", minVal),
-                                centerPos = pos,
-                                isSelected = isSelected,
-                                textMeasurer = textMeasurer,
-                                fontSize = 15.sp,
-                                textColor = if (isSelected) Color.Black else Color.White
+                        // Скрываем статичную цифру, если прямо на неё указывает стрелка, исключая наложение
+                        if (!isExactFiveMinute) {
+                            val res = textMeasurer.measure(
+                                "%02d".format(m),
+                                TextStyle(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White.copy(alpha = 0.85f)
+                                )
                             )
+                            drawText(res, topLeft = Offset(p.x - res.size.width / 2f, p.y - res.size.height / 2f))
                         }
                     }
+
+                    // Таблетка селектора с точным числом текущей минуты
+                    drawCircle(color = accentColor, radius = 16.dp.toPx(), center = endPos)
+
+                    val currentMinText = "%02d".format(selectedMinute)
+                    val minRes = textMeasurer.measure(
+                        currentMinText,
+                        TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.Black
+                        )
+                    )
+                    drawText(minRes, topLeft = Offset(endPos.x - minRes.size.width / 2f, endPos.y - minRes.size.height / 2f))
                 }
             }
         }
     }
 }
 
-// ============================================================================
-// СЕКЦИЯ 4: ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ PACЧЕTA УГЛОВ И РЕНДЕРИНГА ТЕКСТА
-// ============================================================================
 private fun updateValues(
     mode: DialMode,
     normAngle: Float,
@@ -465,32 +446,4 @@ private fun updateValues(
             onMinuteSelected(minute)
         }
     }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDialText(
-    text: String,
-    centerPos: Offset,
-    isSelected: Boolean,
-    textMeasurer: androidx.compose.ui.text.TextMeasurer,
-    fontSize: androidx.compose.ui.unit.TextUnit,
-    textColor: Color
-) {
-    val textLayoutResult = textMeasurer.measure(
-        text = text,
-        style = TextStyle(
-            fontSize = fontSize,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = textColor
-        )
-    )
-
-    val topLeft = Offset(
-        x = centerPos.x - (textLayoutResult.size.width / 2f),
-        y = centerPos.y - (textLayoutResult.size.height / 2f)
-    )
-
-    drawText(
-        textLayoutResult = textLayoutResult,
-        topLeft = topLeft
-    )
 }

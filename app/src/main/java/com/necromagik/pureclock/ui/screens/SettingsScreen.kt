@@ -1,8 +1,11 @@
 package com.necromagik.pureclock.ui.screens
 
+import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -30,17 +33,20 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
+import com.google.android.play.core.appupdate.AppUpdateInfo
+import com.google.android.play.core.install.model.AppUpdateType
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.ClockStylePickerDialog
+import com.necromagik.pureclock.ui.components.PureSwitch
+import com.necromagik.pureclock.ui.components.SwitchIconType
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
-import com.necromagik.pureclock.ui.components.PureSwitch
 
-private const val APP_VERSION = "v1.28"
+private const val APP_VERSION = "1.29a"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +70,24 @@ private fun SettingsMainContent(
     val settingsManager = remember { SettingsManager.getInstance(context) }
     val themeConfig = LocalPureClockConfig.current
     val coroutineScope = rememberCoroutineScope()
+    val cardShape = remember(themeConfig.cardCornerRadius) {
+        RoundedCornerShape(themeConfig.cardCornerRadius)
+    }
+
+    val isVolumeRamp by settingsManager.isVolumeRampEnabledFlow.collectAsState()
+    val defaultSnooze by settingsManager.defaultSnoozeTimeMinutesFlow.collectAsState()
+    val autoDismiss by settingsManager.autoDismissMinutesFlow.collectAsState()
+    val upcomingNotice by settingsManager.upcomingNotificationMinutesFlow.collectAsState()
+    val dismissMethod by settingsManager.dismissMethodFlow.collectAsState()
+    val is24Hour by settingsManager.is24HourFormatFlow.collectAsState()
+    val isClockHaptics by settingsManager.isClockHapticsEnabledFlow.collectAsState()
+    val isTimerVibrate by settingsManager.isTimerVibrateFlow.collectAsState()
+    val isStopwatchLapVibrate by settingsManager.isStopwatchLapVibrateFlow.collectAsState()
+    val allowBetaUpdates by settingsManager.allowBetaUpdatesFlow.collectAsState()
+    val isBetaUpdateAvailable by settingsManager.isBetaUpdateAvailableFlow.collectAsState()
+    val latestBetaRelease by settingsManager.latestBetaReleaseFlow.collectAsState()
+
+    val installSource = remember { settingsManager.getInstallationSource() }
 
     val activeWidgetIds = remember {
         val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -79,10 +103,23 @@ private fun SettingsMainContent(
     var showDismissMethodDialog by remember { mutableStateOf(false) }
     var showUpcomingNoticeDialog by remember { mutableStateOf(false) }
     var showDeveloperInfoDialog by remember { mutableStateOf(false) }
+    var showBetaWarningDialog by remember { mutableStateOf(false) }
 
-    var isCheckingUpdates by remember { mutableStateOf(false) }
-    var updateResult by remember { mutableStateOf<SettingsManager.UpdateChecker.ReleaseInfo?>(null) }
+    var isCheckingStoreUpdates by remember { mutableStateOf(false) }
+    var isCheckingBetaUpdates by remember { mutableStateOf(false) }
+    var playUpdateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var betaUpdateResultDialog by remember { mutableStateOf<SettingsManager.UpdateChecker.ReleaseInfo?>(null) }
     var showNoUpdatesToast by remember { mutableStateOf(false) }
+
+    val warningColor = Color(0xFFFF9800)
+
+    val playUpdateLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            playUpdateInfo = null
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -106,9 +143,9 @@ private fun SettingsMainContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 32.dp)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(vertical = 14.dp)
         ) {
             item { SettingsHeader("Оформление") }
             item {
@@ -117,7 +154,8 @@ private fun SettingsMainContent(
                     title = "Theme Engine",
                     subtitle = "Цветовые акценты, Depth 3D, стиль элементов",
                     onClick = onOpenThemeEngine,
-                    iconTint = themeConfig.accentColor
+                    iconTint = themeConfig.accentColor,
+                    shape = cardShape
                 )
             }
 
@@ -137,7 +175,8 @@ private fun SettingsMainContent(
                         }
                         context.startActivity(intent)
                     },
-                    iconTint = if (hasActiveWidget) themeConfig.accentColor else Color.Gray
+                    iconTint = if (hasActiveWidget) themeConfig.accentColor else Color.Gray,
+                    shape = cardShape
                 )
             }
 
@@ -147,49 +186,53 @@ private fun SettingsMainContent(
                     icon = Icons.AutoMirrored.Filled.VolumeUp,
                     title = "Плавное нарастание громкости",
                     subtitle = "Громкость сигнала увеличивается постепенно",
-                    isChecked = settingsManager.isVolumeRampEnabled,
-                    onCheckedChange = { checked: Boolean -> settingsManager.isVolumeRampEnabled = checked }
+                    isChecked = isVolumeRamp,
+                    iconType = SwitchIconType.SOUNDS,
+                    onCheckedChange = { settingsManager.isVolumeRampEnabled = it },
+                    shape = cardShape
                 )
             }
             item {
                 SettingsClickCard(
                     icon = Icons.Default.Alarm,
                     title = "Длительность повтора",
-                    subtitle = "${settingsManager.defaultSnoozeTimeMinutes} минут",
-                    onClick = { showSnoozeDialog = true }
+                    subtitle = "$defaultSnooze минут",
+                    onClick = { showSnoozeDialog = true },
+                    shape = cardShape
                 )
             }
             item {
                 SettingsClickCard(
                     icon = Icons.Default.TimerOff,
                     title = "Автоматическое отключение",
-                    subtitle = "Через ${settingsManager.autoDismissMinutes} минут",
-                    onClick = { showAutoDismissDialog = true }
+                    subtitle = "Через $autoDismiss минут",
+                    onClick = { showAutoDismissDialog = true },
+                    shape = cardShape
                 )
             }
             item {
                 SettingsClickCard(
                     icon = Icons.Default.NotificationsActive,
                     title = "Предварительное уведомление",
-                    subtitle = if (settingsManager.upcomingNotificationMinutes > 0)
-                        "За ${settingsManager.upcomingNotificationMinutes} мин до сигнала"
+                    subtitle = if (upcomingNotice > 0)
+                        "За $upcomingNotice мин до сигнала"
                     else "Отключено",
-                    onClick = { showUpcomingNoticeDialog = true }
+                    onClick = { showUpcomingNoticeDialog = true },
+                    shape = cardShape
                 )
             }
             item {
-                val methodTitle = remember(settingsManager.dismissMethod) {
-                    when (settingsManager.dismissMethod) {
-                        "MATH" -> "Математический пример"
-                        "SHAKE" -> "Встряхивание"
-                        else -> "Свайп"
-                    }
+                val methodTitle = when (dismissMethod) {
+                    "MATH" -> "Математический пример"
+                    "SHAKE" -> "Встряхивание"
+                    else -> "Свайп"
                 }
                 SettingsClickCard(
                     icon = Icons.Default.Psychology,
                     title = "Способ выключения",
                     subtitle = methodTitle,
-                    onClick = { showDismissMethodDialog = true }
+                    onClick = { showDismissMethodDialog = true },
+                    shape = cardShape
                 )
             }
 
@@ -198,9 +241,10 @@ private fun SettingsMainContent(
                 SettingsSwitchCard(
                     icon = Icons.Default.Schedule,
                     title = "24-часовой формат",
-                    subtitle = if (settingsManager.is24HourFormat) "14:00" else "02:00 PM",
-                    isChecked = settingsManager.is24HourFormat,
-                    onCheckedChange = { checked: Boolean -> settingsManager.is24HourFormat = checked }
+                    subtitle = if (is24Hour) "14:00" else "02:00 PM",
+                    isChecked = is24Hour,
+                    onCheckedChange = { settingsManager.is24HourFormat = it },
+                    shape = cardShape
                 )
             }
             item {
@@ -208,7 +252,8 @@ private fun SettingsMainContent(
                     icon = Icons.Default.Palette,
                     title = "Стиль циферблата",
                     subtitle = "${settingsManager.selectedAnalogStyle.title} / ${settingsManager.selectedDigitalStyle.title}",
-                    onClick = { showStyleDialog = true }
+                    onClick = { showStyleDialog = true },
+                    shape = cardShape
                 )
             }
             item {
@@ -216,8 +261,9 @@ private fun SettingsMainContent(
                     icon = Icons.Default.Vibration,
                     title = "Тактильный отклик",
                     subtitle = "Вибрация при вращении стрелки",
-                    isChecked = settingsManager.isClockHapticsEnabled,
-                    onCheckedChange = { checked: Boolean -> settingsManager.isClockHapticsEnabled = checked }
+                    isChecked = isClockHaptics,
+                    onCheckedChange = { settingsManager.isClockHapticsEnabled = it },
+                    shape = cardShape
                 )
             }
 
@@ -227,8 +273,9 @@ private fun SettingsMainContent(
                     icon = Icons.Default.HourglassBottom,
                     title = "Вибрация таймера",
                     subtitle = "Вибросигнал по окончании отсчета",
-                    isChecked = settingsManager.isTimerVibrate,
-                    onCheckedChange = { checked: Boolean -> settingsManager.isTimerVibrate = checked }
+                    isChecked = isTimerVibrate,
+                    onCheckedChange = { settingsManager.isTimerVibrate = it },
+                    shape = cardShape
                 )
             }
             item {
@@ -236,52 +283,234 @@ private fun SettingsMainContent(
                     icon = Icons.Default.Timer,
                     title = "Отклик кругов секундомера",
                     subtitle = "Вибрация при нажатии кнопки «Круг»",
-                    isChecked = settingsManager.isStopwatchLapVibrate,
-                    onCheckedChange = { checked: Boolean -> settingsManager.isStopwatchLapVibrate = checked }
+                    isChecked = isStopwatchLapVibrate,
+                    onCheckedChange = { settingsManager.isStopwatchLapVibrate = it },
+                    shape = cardShape
                 )
             }
 
             item { SettingsHeader("О приложении") }
+
+            // 1. Статус источника установки
             item {
-                SettingsClickCard(
-                    icon = Icons.Default.Refresh,
-                    title = "Проверить обновления",
-                    subtitle = if (isCheckingUpdates) "Соединение с GitHub..." else "Текущая: $APP_VERSION",
-                    onClick = {
-                        if (!isCheckingUpdates) {
-                            isCheckingUpdates = true
-                            showNoUpdatesToast = false
-                            coroutineScope.launch {
-                                val release = SettingsManager.UpdateChecker.checkForUpdates(APP_VERSION)
-                                isCheckingUpdates = false
-                                if (release != null) {
-                                    updateResult = release
-                                } else {
-                                    showNoUpdatesToast = true
-                                }
-                            }
-                        }
-                    },
-                    iconTint = themeConfig.accentColor
-                )
-            }
-            item {
-                val shape = remember(themeConfig.cardCornerRadius) { RoundedCornerShape(themeConfig.cardCornerRadius) }
+                val isOfficial = installSource.isOfficial
+                val sourceAccent = if (isOfficial) themeConfig.accentColor else warningColor
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .pure3DEffect(
-                            shape = shape,
+                            shape = cardShape,
+                            accentColor = sourceAccent,
+                            depthDp = themeConfig.depthIntensityDp,
+                            is3dEnabled = themeConfig.is3dEnabled,
+                            isGlowEnabled = themeConfig.isGlowEnabled,
+                            surfaceColor = MaterialTheme.colorScheme.surface
+                        )
+                        .padding(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(sourceAccent.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isOfficial) Icons.Default.Verified else Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = sourceAccent,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = installSource.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = sourceAccent.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = if (isOfficial) "Официально" else "Неизвестно",
+                                        color = sourceAccent,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isOfficial) {
+                                    "Сборка проверена цифровой подписью репозитория маркета."
+                                } else {
+                                    "Внимание: сборка из стороннего источника. Переустановите приложение из маркета, если не являетесь бета-тестером"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = if (isOfficial) Color.Gray else warningColor,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. Интеграция In-App обновления для Google Play (и заглушка RuStore)
+            if (!allowBetaUpdates && installSource.isOfficial) {
+                val isPlay = installSource == SettingsManager.InstallSource.GOOGLE_PLAY
+                val isRuStore = installSource == SettingsManager.InstallSource.RUSTORE
+
+                item {
+                    SettingsClickCard(
+                        icon = Icons.Default.SystemUpdate,
+                        title = when {
+                            playUpdateInfo != null -> "Установить обновление Google Play"
+                            isPlay -> "Проверить обновление в Google Play"
+                            isRuStore -> "Проверить обновление в RuStore"
+                            else -> "Проверить обновления"
+                        },
+                        subtitle = when {
+                            isCheckingStoreUpdates -> "Связь с магазином приложений..."
+                            playUpdateInfo != null -> "Новая версия готова к скачиванию через Play Store"
+                            isPlay -> "Google Play In-App Updates API (Закрытое тестирование)"
+                            isRuStore -> "Проверка через RuStore AppUpdate SDK"
+                            else -> "Текущая версия: $APP_VERSION"
+                        },
+                        onClick = {
+                            if (isPlay) {
+                                if (playUpdateInfo != null && context is Activity) {
+                                    settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
+                                        activity = context,
+                                        appUpdateInfo = playUpdateInfo!!,
+                                        launcher = playUpdateLauncher,
+                                        updateType = AppUpdateType.FLEXIBLE
+                                    )
+                                } else if (!isCheckingStoreUpdates) {
+                                    isCheckingStoreUpdates = true
+                                    showNoUpdatesToast = false
+                                    coroutineScope.launch {
+                                        val info = settingsManager.checkGooglePlayInAppUpdates()
+                                        isCheckingStoreUpdates = false
+                                        playUpdateInfo = info
+                                        if (info != null && context is Activity) {
+                                            settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
+                                                activity = context,
+                                                appUpdateInfo = info,
+                                                launcher = playUpdateLauncher,
+                                                updateType = AppUpdateType.FLEXIBLE
+                                            )
+                                        } else if (info == null) {
+                                            showNoUpdatesToast = true
+                                        }
+                                    }
+                                }
+                            } else if (isRuStore) {
+                                if (!isCheckingStoreUpdates) {
+                                    isCheckingStoreUpdates = true
+                                    coroutineScope.launch {
+                                        val isAvailable = settingsManager.checkRuStoreInAppUpdates()
+                                        isCheckingStoreUpdates = false
+                                        if (!isAvailable) {
+                                            showNoUpdatesToast = true
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        iconTint = if (playUpdateInfo != null) themeConfig.accentColor else Color.Gray,
+                        shape = cardShape
+                    )
+                }
+            }
+
+            // 3. Переключатель ветки Beta (GitHub tree/beta)
+            item {
+                SettingsSwitchCard(
+                    icon = Icons.Default.Science,
+                    title = "Бета-канал (GitHub)",
+                    subtitle = "Возможность получать обновления в первых рядах. Перевод на экспериментальную ветку обновлений",
+                    isChecked = allowBetaUpdates,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            showBetaWarningDialog = true
+                        } else {
+                            settingsManager.allowBetaUpdates = false
+                            settingsManager.setBetaUpdateInfo(null)
+                        }
+                    },
+                    shape = cardShape
+                )
+            }
+
+            // 4. Проверка бета-релизов на GitHub
+            if (allowBetaUpdates) {
+                item {
+                    SettingsClickCard(
+                        icon = Icons.Default.Upgrade,
+                        title = if (isBetaUpdateAvailable) "Скачать бета-версию ${latestBetaRelease?.tagName}" else "Проверить бета-обновления",
+                        subtitle = if (isCheckingBetaUpdates) {
+                            "Связь с GitHub tree/beta..."
+                        } else if (isBetaUpdateAvailable) {
+                            "Нажмите для загрузки APK"
+                        } else {
+                            "Текущая сборка: $APP_VERSION"
+                        },
+                        onClick = {
+                            if (isBetaUpdateAvailable && latestBetaRelease != null) {
+                                betaUpdateResultDialog = latestBetaRelease
+                            } else if (!isCheckingBetaUpdates) {
+                                isCheckingBetaUpdates = true
+                                showNoUpdatesToast = false
+                                coroutineScope.launch {
+                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates(APP_VERSION)
+                                    isCheckingBetaUpdates = false
+                                    settingsManager.setBetaUpdateInfo(release)
+                                    if (release != null) {
+                                        betaUpdateResultDialog = release
+                                    } else {
+                                        showNoUpdatesToast = true
+                                    }
+                                }
+                            }
+                        },
+                        iconTint = if (isBetaUpdateAvailable) themeConfig.accentColor else Color.Gray,
+                        shape = cardShape
+                    )
+                }
+            }
+
+            // 5. Инфокарточка о PureClock
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pure3DEffect(
+                            shape = cardShape,
                             accentColor = themeConfig.accentColor,
                             depthDp = themeConfig.depthIntensityDp,
                             is3dEnabled = themeConfig.is3dEnabled,
                             isGlowEnabled = themeConfig.isGlowEnabled,
                             surfaceColor = MaterialTheme.colorScheme.surface
                         )
-                        .padding(16.dp)
+                        .padding(18.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // Кликабельный верхний блок с названием, версией и разработчиком
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -292,12 +521,20 @@ private fun SettingsMainContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Code,
-                                    contentDescription = null,
-                                    tint = themeConfig.accentColor
-                                )
-                                Spacer(modifier = Modifier.width(16.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(themeConfig.accentColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Code,
+                                        contentDescription = null,
+                                        tint = themeConfig.accentColor
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
                                 Column {
                                     Text(
                                         text = "PureClock",
@@ -323,7 +560,7 @@ private fun SettingsMainContent(
 
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 12.dp),
-                            color = Color.Gray.copy(alpha = 0.2f)
+                            color = Color.Gray.copy(alpha = 0.15f)
                         )
 
                         Text(
@@ -336,7 +573,7 @@ private fun SettingsMainContent(
 
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 12.dp),
-                            color = Color.Gray.copy(alpha = 0.2f)
+                            color = Color.Gray.copy(alpha = 0.15f)
                         )
 
                         Text(
@@ -369,7 +606,7 @@ private fun SettingsMainContent(
 
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 12.dp),
-                            color = Color.Gray.copy(alpha = 0.2f)
+                            color = Color.Gray.copy(alpha = 0.15f)
                         )
 
                         Row(
@@ -385,7 +622,7 @@ private fun SettingsMainContent(
             }
 
             item {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -402,6 +639,44 @@ private fun SettingsMainContent(
         }
     }
 
+    if (showBetaWarningDialog) {
+        AlertDialog(
+            onDismissRequest = { showBetaWarningDialog = false },
+            title = { Text("Внимание: Бета-канал", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Вы переходите на бета-канал обновлений из ветки tree/beta (GitHub).\n\n" +
+                            "Каждая бета-версия имеет буквенный индекс (например, 1.29a) и может работать нестабильно. " +
+                            "Все обновления будут доставляться вручную через GitHub вместо официальных маркетов.",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        settingsManager.allowBetaUpdates = true
+                        showBetaWarningDialog = false
+                        coroutineScope.launch {
+                            val release = SettingsManager.UpdateChecker.checkForBetaUpdates(APP_VERSION)
+                            settingsManager.setBetaUpdateInfo(release)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = warningColor)
+                ) {
+                    Text("Включить бета", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBetaWarningDialog = false }) {
+                    Text("Отмена", color = Color.Gray)
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     if (showDeveloperInfoDialog) {
         DeveloperInfo3DDialog(
             accentColor = themeConfig.accentColor,
@@ -416,12 +691,23 @@ private fun SettingsMainContent(
         )
     }
 
-    updateResult?.let { release ->
+    betaUpdateResultDialog?.let { release ->
         AlertDialog(
-            onDismissRequest = { updateResult = null },
-            title = { Text("Доступно обновление ${release.tagName}") },
+            onDismissRequest = { betaUpdateResultDialog = null },
+            title = {
+                Text(
+                    text = "⚠️ Доступна бета-версия ${release.tagName}",
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 Column {
+                    Text(
+                        text = "Сборка из ветки tree/beta на GitHub. Возможна экспериментальная работа.\n\n",
+                        fontSize = 12.sp,
+                        color = warningColor,
+                        fontWeight = FontWeight.Medium
+                    )
                     Text(release.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
             },
@@ -430,30 +716,45 @@ private fun SettingsMainContent(
                     onClick = {
                         val intent = Intent(Intent.ACTION_VIEW, release.downloadUrl.toUri())
                         context.startActivity(intent)
-                        updateResult = null
-                    }
+                        betaUpdateResultDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = warningColor,
+                        contentColor = Color.Black
+                    )
                 ) {
-                    Text("Скачать APK")
+                    Text("Скачать APK", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { updateResult = null }) {
+                TextButton(onClick = { betaUpdateResultDialog = null }) {
                     Text("Позже", color = Color.Gray)
                 }
-            }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(20.dp)
         )
     }
 
     if (showNoUpdatesToast) {
         AlertDialog(
             onDismissRequest = { showNoUpdatesToast = false },
-            title = { Text("PureClock") },
-            text = { Text("У вас установлена последняя версия!") },
+            title = { Text("Обновления", fontWeight = FontWeight.Bold) },
+            text = {
+                val msg = if (allowBetaUpdates) {
+                    "Свежих тестовых сборок на GitHub пока нет. У вас установлена актуальная версия $APP_VERSION."
+                } else {
+                    "У вас установлена последняя версия приложения из магазина ($APP_VERSION)."
+                }
+                Text(msg)
+            },
             confirmButton = {
                 TextButton(onClick = { showNoUpdatesToast = false }) {
-                    Text("Отлично")
+                    Text("Понятно", color = themeConfig.accentColor)
                 }
-            }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(20.dp)
         )
     }
 
@@ -461,8 +762,8 @@ private fun SettingsMainContent(
         ClockStylePickerDialog(
             currentAnalogStyle = settingsManager.selectedAnalogStyle,
             currentDigitalStyle = settingsManager.selectedDigitalStyle,
-            onAnalogStyleSelected = { style -> settingsManager.selectedAnalogStyle = style },
-            onDigitalStyleSelected = { style -> settingsManager.selectedDigitalStyle = style },
+            onAnalogStyleSelected = { settingsManager.selectedAnalogStyle = it },
+            onDigitalStyleSelected = { settingsManager.selectedDigitalStyle = it },
             onDismiss = { showStyleDialog = false }
         )
     }
@@ -471,10 +772,10 @@ private fun SettingsMainContent(
         SingleChoiceDialog(
             title = "Длительность повтора",
             options = listOf(5 to "5 минут", 10 to "10 минут", 15 to "15 минут", 20 to "20 минут"),
-            selectedValue = settingsManager.defaultSnoozeTimeMinutes,
-            onSelect = { selected: Int ->
+            selectedValue = defaultSnooze,
+            onSelect = {
                 showSnoozeDialog = false
-                settingsManager.defaultSnoozeTimeMinutes = selected
+                settingsManager.defaultSnoozeTimeMinutes = it
             },
             onDismiss = { showSnoozeDialog = false }
         )
@@ -484,10 +785,10 @@ private fun SettingsMainContent(
         SingleChoiceDialog(
             title = "Автоотключение будильника",
             options = listOf(5 to "5 минут", 10 to "10 минут", 15 to "15 минут", 30 to "30 минут"),
-            selectedValue = settingsManager.autoDismissMinutes,
-            onSelect = { selected: Int ->
+            selectedValue = autoDismiss,
+            onSelect = {
                 showAutoDismissDialog = false
-                settingsManager.autoDismissMinutes = selected
+                settingsManager.autoDismissMinutes = it
             },
             onDismiss = { showAutoDismissDialog = false }
         )
@@ -502,10 +803,10 @@ private fun SettingsMainContent(
                 30 to "За 30 минут",
                 60 to "За 1 час"
             ),
-            selectedValue = settingsManager.upcomingNotificationMinutes,
-            onSelect = { selected: Int ->
+            selectedValue = upcomingNotice,
+            onSelect = {
                 showUpcomingNoticeDialog = false
-                settingsManager.upcomingNotificationMinutes = selected
+                settingsManager.upcomingNotificationMinutes = it
             },
             onDismiss = { showUpcomingNoticeDialog = false }
         )
@@ -519,13 +820,136 @@ private fun SettingsMainContent(
                 "MATH" to "Математический пример",
                 "SHAKE" to "Встряхивание телефона"
             ),
-            selectedValue = settingsManager.dismissMethod,
-            onSelect = { selected: String ->
+            selectedValue = dismissMethod,
+            onSelect = {
                 showDismissMethodDialog = false
-                settingsManager.dismissMethod = selected
+                settingsManager.dismissMethod = it
             },
             onDismiss = { showDismissMethodDialog = false }
         )
+    }
+}
+
+@Composable
+private fun SettingsHeader(text: String) {
+    Text(
+        text = text,
+        color = MaterialTheme.colorScheme.primary,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp, start = 4.dp)
+    )
+}
+
+@Composable
+private fun SettingsSwitchCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    isChecked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    shape: androidx.compose.ui.graphics.Shape,
+    iconType: SwitchIconType = SwitchIconType.NONE
+) {
+    val themeConfig = LocalPureClockConfig.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pure3DEffect(
+                shape = shape,
+                accentColor = themeConfig.accentColor,
+                depthDp = themeConfig.depthIntensityDp,
+                is3dEnabled = themeConfig.is3dEnabled,
+                isGlowEnabled = themeConfig.isGlowEnabled,
+                surfaceColor = MaterialTheme.colorScheme.surface
+            )
+            .padding(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = themeConfig.accentColor)
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column {
+                    Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(subtitle, color = Color.Gray, fontSize = 12.sp)
+                }
+            }
+            PureSwitch(
+                checked = isChecked,
+                iconType = iconType,
+                onCheckedChange = onCheckedChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsClickCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    shape: androidx.compose.ui.graphics.Shape,
+    iconTint: Color = Color.Gray
+) {
+    val themeConfig = LocalPureClockConfig.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .bounceClick { onClick() }
+            .pure3DEffect(
+                shape = shape,
+                accentColor = themeConfig.accentColor,
+                depthDp = themeConfig.depthIntensityDp,
+                is3dEnabled = themeConfig.is3dEnabled,
+                isGlowEnabled = themeConfig.isGlowEnabled,
+                surfaceColor = MaterialTheme.colorScheme.surface
+            )
+            .padding(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(iconTint.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = iconTint)
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column {
+                    Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(subtitle, color = Color.Gray, fontSize = 12.sp)
+                }
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+        }
     }
 }
 
@@ -598,9 +1022,19 @@ private fun DeveloperInfo3DDialog(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f))
 
                     Spacer(modifier = Modifier.height(16.dp))
+
+                    DeveloperLinkButton(
+                        icon = Icons.Default.Adjust,
+                        title = "Сайт разработчика",
+                        subtitle = "NecroMagik.github.io",
+                        accentColor = accentColor,
+                        onClick = { onOpenUrl("https://NecroMagik.github.io") }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     DeveloperLinkButton(
                         icon = Icons.Default.Code,
@@ -706,116 +1140,6 @@ private fun DeveloperLinkButton(
 }
 
 @Composable
-private fun SettingsHeader(text: String) {
-    Text(
-        text = text,
-        color = MaterialTheme.colorScheme.primary,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp, start = 4.dp)
-    )
-}
-
-@Composable
-private fun SettingsSwitchCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    isChecked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    val themeConfig = LocalPureClockConfig.current
-    val shape = remember(themeConfig.cardCornerRadius) { RoundedCornerShape(themeConfig.cardCornerRadius) }
-
-    var localChecked by remember(isChecked) { mutableStateOf(isChecked) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pure3DEffect(
-                shape = shape,
-                accentColor = themeConfig.accentColor,
-                depthDp = themeConfig.depthIntensityDp,
-                is3dEnabled = themeConfig.is3dEnabled,
-                isGlowEnabled = themeConfig.isGlowEnabled,
-                surfaceColor = MaterialTheme.colorScheme.surface
-            )
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(icon, contentDescription = null, tint = Color.Gray)
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text(subtitle, color = Color.Gray, fontSize = 12.sp)
-                }
-            }
-            PureSwitch(
-                checked = localChecked,
-                onCheckedChange = { newState ->
-                    localChecked = newState
-                    onCheckedChange(newState)
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsClickCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    iconTint: Color = Color.Gray
-) {
-    val themeConfig = LocalPureClockConfig.current
-    val shape = remember(themeConfig.cardCornerRadius) { RoundedCornerShape(themeConfig.cardCornerRadius) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .bounceClick { onClick() }
-            .pure3DEffect(
-                shape = shape,
-                accentColor = themeConfig.accentColor,
-                depthDp = themeConfig.depthIntensityDp,
-                is3dEnabled = themeConfig.is3dEnabled,
-                isGlowEnabled = themeConfig.isGlowEnabled,
-                surfaceColor = MaterialTheme.colorScheme.surface
-            )
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(icon, contentDescription = null, tint = iconTint)
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text(subtitle, color = Color.Gray, fontSize = 12.sp)
-                }
-            }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
-        }
-    }
-}
-
-@Composable
 private fun <T> SingleChoiceDialog(
     title: String,
     options: List<Pair<T, String>>,
@@ -834,17 +1158,13 @@ private fun <T> SingleChoiceDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                onSelect(value)
-                            }
+                            .clickable { onSelect(value) }
                             .padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
                             selected = (value == selectedValue),
-                            onClick = {
-                                onSelect(value)
-                            },
+                            onClick = { onSelect(value) },
                             colors = RadioButtonDefaults.colors(selectedColor = accentColor)
                         )
                         Spacer(modifier = Modifier.width(12.dp))

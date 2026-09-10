@@ -6,10 +6,14 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,9 +24,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -30,9 +34,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.necromagik.pureclock.ui.animation.bounceClick
-import com.necromagik.pureclock.ui.animation.rememberAlarmCardAnimation
 import com.necromagik.pureclock.ui.components.PureSwitch
+import com.necromagik.pureclock.ui.components.SwitchIconType
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
+import com.necromagik.pureclock.ui.theme.pure3DEffect
 
 data class AlarmUiModel(
     val id: Long,
@@ -43,9 +48,6 @@ data class AlarmUiModel(
     val isEnabled: Boolean
 )
 
-// ============================================================================
-// СЕКЦИЯ 1: ИНТЕРАКТИВНАЯ КАРТОЧКА БУДИЛЬНИКА С HAPTIC FEEDBACK И АНИМАЦИЕЙ
-// ============================================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AlarmItem(
@@ -59,8 +61,47 @@ fun AlarmItem(
     onSelectToggle: () -> Unit
 ) {
     val context = LocalContext.current
-    val accentColor = MaterialTheme.colorScheme.primary
-    val cardCornerRadius = LocalPureClockConfig.current.cardCornerRadius
+    val themeConfig = LocalPureClockConfig.current
+    val accentColor = themeConfig.accentColor
+    val cardShape = remember(themeConfig.cardCornerRadius) {
+        RoundedCornerShape(themeConfig.cardCornerRadius)
+    }
+
+    // Плавный рост при включении (Spring) и возврат в 1.0f при выключении
+    val cardScale by animateFloatAsState(
+        targetValue = if (alarm.isEnabled) 1.02f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "AlarmScaleToggle"
+    )
+
+    // Градиент рамки: плавный переход от тускло-серого к насыщенному акцентному
+    val borderGradientProgress by animateFloatAsState(
+        targetValue = if (alarm.isEnabled) 1f else 0f,
+        animationSpec = tween(durationMillis = 350),
+        label = "AlarmBorderColorTransition"
+    )
+
+    val currentBorderBrush = remember(borderGradientProgress, accentColor) {
+        val startColor = Color.Gray.copy(alpha = 0.2f + 0.3f * borderGradientProgress)
+        val endColor = Color(
+            red = (Color.Gray.red * (1 - borderGradientProgress) + accentColor.red * borderGradientProgress),
+            green = (Color.Gray.green * (1 - borderGradientProgress) + accentColor.green * borderGradientProgress),
+            blue = (Color.Gray.blue * (1 - borderGradientProgress) + accentColor.blue * borderGradientProgress),
+            alpha = 0.25f + 0.75f * borderGradientProgress
+        )
+        Brush.linearGradient(
+            listOf(startColor, endColor)
+        )
+    }
+
+    val timeColor by animateColorAsState(
+        targetValue = if (alarm.isEnabled) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "TimeColor"
+    )
 
     fun triggerCustomHaptic(isTurningOn: Boolean) {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -70,8 +111,7 @@ fun AlarmItem(
             @Suppress("DEPRECATION")
             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
-
-        val timings = if (isTurningOn) longArrayOf(0, 30, 50, 30) else longArrayOf(0, 120)
+        val timings = if (isTurningOn) longArrayOf(0, 25, 35, 25) else longArrayOf(0, 80)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrator.vibrate(VibrationEffect.createWaveform(timings, -1))
         } else {
@@ -80,62 +120,26 @@ fun AlarmItem(
         }
     }
 
-    val animState = rememberAlarmCardAnimation(alarm.isEnabled)
-
-    val borderWidth by animateDpAsState(
-        targetValue = if (alarm.isEnabled && animState.progress > 0f && animState.progress < 1f) 3.dp else 1.dp,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "BorderWidth"
-    )
-
-    val rainbowColors = listOf(
-        MaterialTheme.colorScheme.outline,
-        Color(0xFFFF5252),
-        Color(0xFFFFEB3B),
-        Color(0xFF00E676),
-        accentColor
-    )
-
-    val currentRainbowColor = rainbowColors[(animState.progress * (rainbowColors.size - 1)).toInt()]
-
-    val animatedBorderColor by animateColorAsState(
-        targetValue = if (alarm.isEnabled) accentColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-        animationSpec = tween(500),
-        label = "BorderColor"
-    )
-
-    val baseSurfaceColor = MaterialTheme.colorScheme.surface
-
-    Card(
-        shape = RoundedCornerShape(cardCornerRadius),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        border = BorderStroke(
-            width = borderWidth,
-            brush = if (animState.progress > 0f && animState.progress < 1f) {
-                Brush.horizontalGradient(listOf(currentRainbowColor, accentColor, currentRainbowColor))
-            } else {
-                SolidColor(animatedBorderColor)
-            }
-        ),
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (isCardView) Modifier.height(115.dp) else Modifier.wrapContentHeight())
+            .then(if (isCardView) Modifier.height(134.dp) else Modifier.wrapContentHeight())
             .graphicsLayer {
-                scaleX = animState.scale
-                scaleY = animState.scale
+                scaleX = cardScale
+                scaleY = cardScale
             }
-            .background(
-                brush = if (alarm.isEnabled) {
-                    Brush.radialGradient(
-                        colors = listOf(
-                            accentColor.copy(alpha = 0.10f),
-                            baseSurfaceColor
-                        )
-                    )
-                } else {
-                    SolidColor(baseSurfaceColor)
-                },
-                shape = RoundedCornerShape(cardCornerRadius)
+            .pure3DEffect(
+                shape = cardShape,
+                accentColor = if (alarm.isEnabled) accentColor else Color.DarkGray,
+                depthDp = if (alarm.isEnabled) themeConfig.depthIntensityDp else 2.dp,
+                is3dEnabled = themeConfig.is3dEnabled,
+                isGlowEnabled = alarm.isEnabled && themeConfig.isGlowEnabled,
+                surfaceColor = MaterialTheme.colorScheme.surface
+            )
+            .border(
+                width = if (alarm.isEnabled) 1.8.dp else 1.dp,
+                brush = currentBorderBrush,
+                shape = cardShape
             )
             .combinedClickable(
                 onClick = {
@@ -157,15 +161,11 @@ fun AlarmItem(
                     onLongClick()
                 }
             )
+            .padding(16.dp)
     ) {
-// ============================================================================
-// СЕКЦИЯ 2: ОТОБРАЖЕНИЕ В РЕЖИМЕ СЕТКИ (GRID CARD VIEW)
-// ============================================================================
         if (isCardView) {
             Column(
-                modifier = Modifier
-                    .padding(12.dp)
-                    .fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
@@ -175,59 +175,55 @@ fun AlarmItem(
                 ) {
                     Text(
                         text = alarm.time,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (alarm.isEnabled) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        modifier = Modifier.alpha(animState.contentAlpha)
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = timeColor
                     )
 
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (isSelectionMode) {
-                            Checkbox(
-                                checked = isSelected,
-                                onCheckedChange = {
-                                    triggerCustomHaptic(!isSelected)
-                                    onSelectToggle()
-                                },
-                                colors = CheckboxDefaults.colors(checkedColor = accentColor),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        } else {
-                            IconButton(
-                                onClick = onEditClick,
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .bounceClick()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Редактировать",
-                                    tint = if (alarm.isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                )
-                            }
-                            Text(
-                                text = if (alarm.isEnabled) "Вкл" else "Выкл",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                                fontSize = 10.sp
+                    if (isSelectionMode) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = {
+                                triggerCustomHaptic(!isSelected)
+                                onSelectToggle()
+                            },
+                            colors = CheckboxDefaults.colors(checkedColor = accentColor),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(accentColor.copy(alpha = if (alarm.isEnabled) 0.15f else 0.06f))
+                                .clickable { onEditClick() }
+                                .bounceClick(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Редактировать",
+                                tint = if (alarm.isEnabled) accentColor else Color.Gray,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
 
-                Column(modifier = Modifier.alpha(animState.contentAlpha)) {
+                Column {
                     Text(
                         text = alarm.days,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-
                     if (alarm.label.isNotEmpty()) {
                         Text(
                             text = alarm.label,
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            color = Color.Gray,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -235,31 +231,24 @@ fun AlarmItem(
                 }
             }
         } else {
-// ============================================================================
-// СЕКЦИЯ 3: ОТОБРАЖЕНИЕ В РЕЖИМЕ СТРОЧНОГО СПИСКА (LIST ITEM VIEW)
-// ============================================================================
             Row(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .alpha(animState.contentAlpha)
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = alarm.time,
                         fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (alarm.isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = if (alarm.label.isNotEmpty()) "${alarm.days} • ${alarm.label}" else alarm.days,
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        color = if (alarm.isEnabled) accentColor else Color.Gray,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
@@ -275,6 +264,7 @@ fun AlarmItem(
                 } else {
                     PureSwitch(
                         checked = alarm.isEnabled,
+                        iconType = SwitchIconType.SOUNDS,
                         onCheckedChange = {
                             val nextState = !alarm.isEnabled
                             triggerCustomHaptic(nextState)

@@ -2,6 +2,7 @@ package com.necromagik.pureclock.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,12 +10,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -27,10 +30,8 @@ import com.necromagik.pureclock.data.WorldClockRepository
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.SmoothAnalogClock
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
+import com.necromagik.pureclock.ui.theme.pure3DEffect
 
-// ============================================================================
-// СЕКЦИЯ 1: ЭКРАН МИРОВОГО ВРЕМЕНИ И СПИСОК ОТСЛЕЖИВАЕМЫХ ГОРОДОВ
-// ============================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorldClockScreen(
@@ -40,8 +41,8 @@ fun WorldClockScreen(
 ) {
     val context = LocalContext.current
     val settingsManager = remember { SettingsManager.getInstance(context) }
+    val is24Hour by settingsManager.is24HourFormatFlow.collectAsState()
 
-    // Инициализируем репозиторий с передачей Room DAO
     val repository = remember {
         val db = AppDatabase.getDatabase(context)
         WorldClockRepository(db.cityDao(), context)
@@ -51,10 +52,7 @@ fun WorldClockScreen(
     var showAddCityDialog by remember { mutableStateOf(false) }
 
     val isDialogVisible = showAddCityDialog || externalShowAddDialog
-
     var currentShiftHours by remember { mutableIntStateOf(0) }
-
-    // Загружаем города асинхронно из базы Room
     var savedCities by remember { mutableStateOf<List<WorldCity>>(emptyList()) }
 
     LaunchedEffect(savedIds) {
@@ -68,21 +66,21 @@ fun WorldClockScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             SmoothAnalogClock(
                 analogStyle = settingsManager.selectedAnalogStyle,
                 digitalStyle = settingsManager.selectedDigitalStyle,
-                clockSize = 350.dp,
+                clockSize = 330.dp,
                 onShiftHoursChanged = { newShift ->
                     currentShiftHours = newShift
                 }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -90,14 +88,15 @@ fun WorldClockScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Отслеживаемые города",
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+                    text = "ОТСЛЕЖИВАЕМЫЕ ГОРОДА",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
                 )
                 Text(
                     text = "${savedCities.size} городов",
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                    color = Color.Gray.copy(alpha = 0.6f),
                     fontSize = 11.sp
                 )
             }
@@ -105,8 +104,8 @@ fun WorldClockScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 80.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 90.dp)
             ) {
                 itemsIndexed(savedCities, key = { _, city -> city.id }) { index, city ->
                     var isVisible by remember { mutableStateOf(false) }
@@ -114,16 +113,16 @@ fun WorldClockScreen(
 
                     AnimatedVisibility(
                         visible = isVisible,
-                        enter = fadeIn(animationSpec = tween(durationMillis = 300, delayMillis = index * 50)) +
+                        enter = fadeIn(animationSpec = tween(durationMillis = 300, delayMillis = index * 40)) +
                                 slideInVertically(
                                     initialOffsetY = { 30 },
-                                    animationSpec = tween(durationMillis = 300, delayMillis = index * 50)
+                                    animationSpec = tween(durationMillis = 300, delayMillis = index * 40)
                                 ),
                         exit = fadeOut() + shrinkVertically()
                     ) {
                         CityClockCard(
                             city = city,
-                            is24Hour = settingsManager.is24HourFormat,
+                            is24Hour = is24Hour,
                             shiftHours = currentShiftHours,
                             onDelete = {
                                 val newSet = savedIds - city.id
@@ -137,9 +136,6 @@ fun WorldClockScreen(
         }
     }
 
-// ============================================================================
-// СЕКЦИЯ 2: ВЫЗОВ МОДАЛЬНОГО ОКНА ПОИСКА И ДОБАВЛЕНИЯ ГОРОДОВ
-// ============================================================================
     if (isDialogVisible) {
         AddCityDialog(
             alreadySavedIds = savedIds,
@@ -159,9 +155,6 @@ fun WorldClockScreen(
     }
 }
 
-// ============================================================================
-// СЕКЦИЯ 3: КАРТОЧКА ГОРОДА С ДНЁМ/НОЧЬЮ И ДЕЛЬТОЙ ЧАСОВ
-// ============================================================================
 @Composable
 private fun CityClockCard(
     city: WorldCity,
@@ -170,63 +163,110 @@ private fun CityClockCard(
     onDelete: () -> Unit
 ) {
     val themeConfig = LocalPureClockConfig.current
+    val accentColor = themeConfig.accentColor
+    val cardShape = remember(themeConfig.cardCornerRadius) {
+        RoundedCornerShape(themeConfig.cardCornerRadius)
+    }
+    val isDay = city.isDaytime(shiftHours)
+    val sunMoonColor = if (isDay) Color(0xFFFFB74D) else Color(0xFF90CAF9)
 
-    Card(
-        shape = RoundedCornerShape(themeConfig.cardCornerRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .bounceClick()
+            .pure3DEffect(
+                shape = cardShape,
+                accentColor = accentColor,
+                depthDp = themeConfig.depthIntensityDp,
+                is3dEnabled = themeConfig.is3dEnabled,
+                isGlowEnabled = themeConfig.isGlowEnabled,
+                surfaceColor = MaterialTheme.colorScheme.surface
+            )
+            .padding(18.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(sunMoonColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isDay) Icons.Default.WbSunny else Icons.Default.NightsStay,
+                        contentDescription = null,
+                        tint = sunMoonColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column {
                     Text(
                         text = city.cityName,
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 18.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(
-                        imageVector = if (city.isDaytime(shiftHours)) Icons.Default.WbSunny else Icons.Default.NightsStay,
-                        contentDescription = null,
-                        tint = if (city.isDaytime(shiftHours)) Color(0xFFFFB74D) else Color(0xFF90CAF9),
-                        modifier = Modifier.size(16.dp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${city.countryName} • ${city.getTimeDifferenceText(shiftHours)}",
+                        color = Color.Gray,
+                        fontSize = 12.sp
                     )
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${city.countryName} • ${city.getTimeDifferenceText(shiftHours)}",
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = city.getFormattedTime(is24Hour, shiftHours),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    // Увеличенный размер и жирность шрифта времени
+                    Text(
+                        text = city.getFormattedTime(is24Hour, shiftHours),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Black
+                    )
+
+                    // Акцентная подпись с количеством добавленных/убранных часов при ручном сдвиге
+                    if (shiftHours != 0) {
+                        val shiftText = if (shiftHours > 0) "+$shiftHours ч" else "$shiftHours ч"
+                        Text(
+                            text = shiftText,
+                            color = accentColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.width(12.dp))
                 IconButton(
                     onClick = onDelete,
                     modifier = Modifier
-                        .size(24.dp)
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .bounceClick()
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Удалить",
-                        tint = Color.Gray
+                        tint = Color.Gray,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -234,9 +274,6 @@ private fun CityClockCard(
     }
 }
 
-// ============================================================================
-// СЕКЦИЯ 4: ДИАЛОГ ОФЛАЙН/ОНЛАЙН ПОИСКА ГОРОДОВ ЧЕРЕЗ ROOM
-// ============================================================================
 @Composable
 private fun AddCityDialog(
     alreadySavedIds: Set<String>,
@@ -249,7 +286,6 @@ private fun AddCityDialog(
     var searchResults by remember { mutableStateOf<List<WorldCity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Делаем мгновенный реактивный поиск в Room БД при вводе
     LaunchedEffect(searchQuery) {
         isLoading = true
         searchResults = repository.searchCities(searchQuery)
@@ -259,7 +295,13 @@ private fun AddCityDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Добавить город", color = MaterialTheme.colorScheme.onSurface) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Public, contentDescription = null, tint = themeConfig.accentColor)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Добавить город", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+            }
+        },
         text = {
             Column(modifier = Modifier.heightIn(max = 380.dp)) {
                 OutlinedTextField(
@@ -276,11 +318,11 @@ private fun AddCityDialog(
                             )
                         }
                     },
-                    shape = RoundedCornerShape(themeConfig.cardCornerRadius / 2),
+                    shape = RoundedCornerShape(14.dp),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 if (searchResults.isEmpty() && !isLoading) {
                     Box(
@@ -293,10 +335,11 @@ private fun AddCityDialog(
                     }
                 } else {
                     LazyColumn {
-                        itemsIndexed(searchResults, key = { _, city -> city.id }) { index, city ->
+                        itemsIndexed(searchResults, key = { _, city -> city.id }) { _, city ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
                                     .bounceClick { onCitySelected(city.id) }
                                     .padding(vertical = 10.dp, horizontal = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -306,7 +349,7 @@ private fun AddCityDialog(
                                     Text(
                                         text = city.cityName,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
                                         text = city.countryName,
@@ -316,11 +359,11 @@ private fun AddCityDialog(
                                 }
                                 Text(
                                     text = city.getTimeDifferenceText(0),
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = themeConfig.accentColor,
                                     fontSize = 12.sp
                                 )
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f))
                         }
                     }
                 }
@@ -333,6 +376,6 @@ private fun AddCityDialog(
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(themeConfig.cardCornerRadius)
+        shape = RoundedCornerShape(24.dp)
     )
 }

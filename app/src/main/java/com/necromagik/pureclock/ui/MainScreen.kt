@@ -5,6 +5,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -12,28 +13,32 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Upgrade
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.necromagik.pureclock.data.AlarmEntity
+import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.PureClockAnimationSpecs
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.BottomBarTab
 import com.necromagik.pureclock.ui.components.Pure3DIcon
+import com.necromagik.pureclock.ui.components.SettingsTopBarIcon
 import com.necromagik.pureclock.ui.screens.AddEditAlarmScreen
 import com.necromagik.pureclock.ui.screens.AlarmListScreen
 import com.necromagik.pureclock.ui.screens.SettingsScreen
@@ -68,6 +73,9 @@ enum class ScreenRoute {
 fun MainScreen(viewModel: AlarmViewModel) {
     var currentRoute by remember { mutableStateOf(ScreenRoute.MAIN) }
 
+    val context = LocalContext.current
+    val settingsManager = remember { SettingsManager.getInstance(context) }
+
     val timerViewModel: TimerViewModel = viewModel()
     val stopwatchViewModel: StopwatchViewModel = viewModel()
     val pagerState = rememberPagerState(initialPage = 0) { ClockTab.entries.size }
@@ -84,6 +92,9 @@ fun MainScreen(viewModel: AlarmViewModel) {
     val stopwatchElapsed by stopwatchViewModel.elapsedMillis.collectAsState()
 
     val alarms by viewModel.alarms.collectAsState()
+
+    // Состояние скрытия баббла пользователем на текущей сессии
+    var isUpdateBubbleDismissed by remember { mutableStateOf(false) }
 
     BackHandler(enabled = currentRoute != ScreenRoute.MAIN || isAddingAlarm || editingAlarm != null) {
         when {
@@ -193,6 +204,17 @@ fun MainScreen(viewModel: AlarmViewModel) {
                     }
 
                     ScreenRoute.MAIN -> {
+                        val isBetaUpdateAvailable by settingsManager.isBetaUpdateAvailableFlow.collectAsState()
+                        val latestBetaRelease by settingsManager.latestBetaReleaseFlow.collectAsState()
+
+                        // Проверка бета-релизов в ветке tree/beta при включённом тумблере
+                        LaunchedEffect(Unit) {
+                            if (settingsManager.allowBetaUpdates) {
+                                val release = SettingsManager.UpdateChecker.checkForBetaUpdates("1.29")
+                                settingsManager.setBetaUpdateInfo(release)
+                            }
+                        }
+
                         Scaffold(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -202,7 +224,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        .padding(horizontal = 20.dp, vertical = 10.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -211,15 +233,11 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold
                                     )
-                                    IconButton(
-                                        onClick = { currentRoute = ScreenRoute.SETTINGS },
-                                        modifier = Modifier.bounceClick()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Settings,
-                                            contentDescription = "Настройки"
-                                        )
-                                    }
+                                    SettingsTopBarIcon(
+                                        hasUpdate = isBetaUpdateAvailable,
+                                        accentColor = themeConfig.accentColor,
+                                        onClick = { currentRoute = ScreenRoute.SETTINGS }
+                                    )
                                 }
                             },
                             bottomBar = {
@@ -409,6 +427,87 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
                                         ClockTab.STOPWATCH -> {
                                             StopwatchScreen(stopwatchViewModel = stopwatchViewModel)
+                                        }
+                                    }
+                                }
+
+                                // НИЖНЕЕ БАББЛ-УВЕДОМЛЕНИЕ О ВЫХОДЕ БЕТЫ
+                                AnimatedVisibility(
+                                    visible = isBetaUpdateAvailable && !isUpdateBubbleDismissed,
+                                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 100.dp, start = 20.dp, end = 20.dp)
+                                ) {
+                                    val bubbleShape = RoundedCornerShape(20.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .pure3DEffect(
+                                                shape = bubbleShape,
+                                                accentColor = themeConfig.accentColor,
+                                                depthDp = 6.dp,
+                                                is3dEnabled = themeConfig.is3dEnabled,
+                                                isGlowEnabled = themeConfig.isGlowEnabled,
+                                                surfaceColor = MaterialTheme.colorScheme.surface
+                                            )
+                                            .clickable { currentRoute = ScreenRoute.SETTINGS }
+                                            .bounceClick()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(36.dp)
+                                                        .clip(CircleShape)
+                                                        .background(themeConfig.accentColor.copy(alpha = 0.15f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Upgrade,
+                                                        contentDescription = null,
+                                                        tint = themeConfig.accentColor,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text(
+                                                        text = "Вышла бета ${latestBetaRelease?.tagName ?: ""}",
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp
+                                                    )
+                                                    Text(
+                                                        text = "Нажмите для перехода в настройки",
+                                                        color = Color.Gray,
+                                                        fontSize = 11.sp
+                                                    )
+                                                }
+                                            }
+
+                                            IconButton(
+                                                onClick = { isUpdateBubbleDismissed = true },
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .bounceClick()
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Закрыть",
+                                                    tint = Color.Gray,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }

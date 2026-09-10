@@ -634,7 +634,7 @@ fun SmoothAnalogClock(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
 // ============================================================================
 // СЕКЦИЯ 4: ТЕКСТОВЫЙ ИНФОРМЕР ДАТЫ И ВРЕМЕНИ
@@ -652,12 +652,28 @@ fun SmoothAnalogClock(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.graphicsLayer { alpha = flickerAlpha }
         ) {
-            Text(
-                text = "$dateFormatted, $displayTimeText",
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "$dateFormatted, $displayTimeText",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                if (shiftHoursCount != 0) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val shiftText = if (shiftHoursCount > 0) "+$shiftHoursCount ч" else "$shiftHoursCount ч"
+                    Text(
+                        text = "($shiftText)",
+                        color = accentColor,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
         }
     }
 }

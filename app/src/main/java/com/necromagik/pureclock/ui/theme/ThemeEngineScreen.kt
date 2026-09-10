@@ -32,8 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.toColorInt
 import com.necromagik.pureclock.data.SettingsManager
-import com.necromagik.pureclock.data.ThemeState
 import com.necromagik.pureclock.ui.animation.bounceClick
+import com.necromagik.pureclock.ui.components.PureSwitch
 
 // ============================================================================
 // СЕКЦИЯ 1: ТИПЫ ТЕМ И ПРЕСЕТЫ
@@ -173,13 +173,17 @@ fun ThemeEngineScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
+            // 1. БАЗА: ПРЕДПРОСМОТР В РЕАЛЬНОМ ВРЕМЕНИ
             ThemePreviewCard(
                 accentColor = currentConfig.accentColor,
                 cornerRadius = animatedCornerRadius
             )
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 2. БАЗА: ГОТОВЫЕ ПРЕСЕТЫ
             ThemePresetsSection(
                 accentColor = currentConfig.accentColor,
                 themeState = themeState,
@@ -194,18 +198,9 @@ fun ThemeEngineScreen(
                 }
             )
 
-            // БЛОК УПРАВЛЕНИЯ 3D DEPTH ENGINE
-            DepthEngineSection(
-                accentColor = currentConfig.accentColor,
-                cornerRadius = currentConfig.cardCornerRadius,
-                themeState = themeState,
-                on3DToggle = { settingsManager.is3DEffectsEnabled = it },
-                onGlowToggle = { settingsManager.isNeonGlowEnabled = it },
-                onDepthChange = { settingsManager.depthIntensityDp = it }
-            )
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+            // 3. БАЗА: СИСТЕМНЫЙ РЕЖИМ (СИСТЕМА / ТЕМНАЯ / СВЕТЛАЯ)
             ThemeBaseModeSection(
                 accentColor = currentConfig.accentColor,
                 cornerRadius = currentConfig.cardCornerRadius,
@@ -213,14 +208,18 @@ fun ThemeEngineScreen(
                 onModeSelect = { settingsManager.themeMode = it }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
+            // 4. ВСЁ ОСТАЛЬНОЕ: РАСШИРЕННЫЕ НАСТРОЙКИ (3D DEPTH, ЦВЕТА, СКРУГЛЕНИЯ)
             AdvancedCustomizationSection(
                 accentColor = currentConfig.accentColor,
                 cornerRadius = currentConfig.cardCornerRadius,
                 themeState = themeState,
                 isExpanded = isAdvancedExpanded,
                 onToggleExpand = { isAdvancedExpanded = !isAdvancedExpanded },
+                on3DToggle = { settingsManager.is3DEffectsEnabled = it },
+                onGlowToggle = { settingsManager.isNeonGlowEnabled = it },
+                onDepthChange = { settingsManager.depthIntensityDp = it },
                 onPureMonocolorToggle = { settingsManager.isPureMonocolor = it },
                 onOpenColorDialog = { showCustomColorDialog = true },
                 onSelectSystemAccent = {
@@ -230,6 +229,8 @@ fun ThemeEngineScreen(
                 onAccentColorSelect = { hex -> settingsManager.accentColorHex = hex },
                 onCornerRadiusSelect = { radius -> settingsManager.cardCornerRadiusDp = radius }
             )
+
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 
@@ -244,129 +245,7 @@ fun ThemeEngineScreen(
 }
 
 // ============================================================================
-// СЕКЦИЯ 3: СЕКЦИЯ DEPTH ENGINE (3D И СВЕЧЕНИЕ)
-// ============================================================================
-@Composable
-private fun DepthEngineSection(
-    accentColor: Color,
-    cornerRadius: Dp,
-    themeState: ThemeState,
-    on3DToggle: (Boolean) -> Unit,
-    onGlowToggle: (Boolean) -> Unit,
-    onDepthChange: (Int) -> Unit
-) {
-    SectionHeader(
-        text = "ОБЪЁМ И 3D-ЭФФЕКТЫ (DEPTH ENGINE)",
-        accentColor = accentColor,
-        icon = {
-            Icon(
-                imageVector = Icons.Default.ViewInAr,
-                contentDescription = null,
-                tint = accentColor,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    )
-
-    Card(
-        shape = RoundedCornerShape(cornerRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Переключатель 3D Обмена
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "3D-Эффекты и слоистые тени",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (themeState.is3DEffectsEnabled) "Включен объем Drop Shadow" else "Плоский минимализм (2D Flat)",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                }
-                Switch(
-                    checked = themeState.is3DEffectsEnabled,
-                    onCheckedChange = on3DToggle,
-                    colors = SwitchDefaults.colors(
-                        checkedTrackColor = accentColor,
-                        checkedThumbColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            }
-
-            AnimatedVisibility(visible = themeState.is3DEffectsEnabled) {
-                Column {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 12.dp),
-                        color = Color.Gray.copy(alpha = 0.2f)
-                    )
-
-                    // Переключатель Неонового Свечения
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Неоновое свечение (Glow Effect)",
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Светодиодные фаски карточек и неоновый ореол цифр",
-                                fontSize = 11.sp,
-                                color = Color.Gray
-                            )
-                        }
-                        Switch(
-                            checked = themeState.isNeonGlowEnabled,
-                            onCheckedChange = onGlowToggle,
-                            colors = SwitchDefaults.colors(
-                                checkedTrackColor = accentColor,
-                                checkedThumbColor = MaterialTheme.colorScheme.surface
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Слайдер Глубины
-                    Text(
-                        text = "Глубина объема: ${themeState.depthIntensityDp} dp",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Slider(
-                        value = themeState.depthIntensityDp.toFloat(),
-                        onValueChange = { onDepthChange(it.toInt()) },
-                        valueRange = 2f..16f,
-                        steps = 7,
-                        colors = SliderDefaults.colors(
-                            thumbColor = accentColor,
-                            activeTrackColor = accentColor,
-                            inactiveTrackColor = Color.Gray.copy(alpha = 0.3f)
-                        )
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ============================================================================
-// СЕКЦИЯ 4: ИЗОЛИРОВАННЫЕ ВПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
+// СЕКЦИЯ 3: БАЗОВЫЕ КОМПОНЕНТЫ
 // ============================================================================
 @Composable
 private fun SectionHeader(
@@ -379,12 +258,13 @@ private fun SectionHeader(
         modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
     ) {
         icon?.invoke()
-        if (icon != null) Spacer(modifier = Modifier.width(6.dp))
+        if (icon != null) Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = text,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = accentColor
+            color = accentColor,
+            letterSpacing = 1.sp
         )
     }
 }
@@ -395,15 +275,16 @@ private fun ThemePreviewCard(
     cornerRadius: Dp
 ) {
     val themeConfig = LocalPureClockConfig.current
+    val cardShape = RoundedCornerShape(cornerRadius)
+
     SectionHeader(text = "ПРЕДПРОСМОТР В РЕАЛЬНОМ ВРЕМЕНИ", accentColor = accentColor)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 20.dp)
-            .bounceClick()
+            .padding(bottom = 12.dp)
             .pure3DEffect(
-                shape = RoundedCornerShape(cornerRadius),
+                shape = cardShape,
                 accentColor = accentColor,
                 depthDp = themeConfig.depthIntensityDp,
                 is3dEnabled = themeConfig.is3dEnabled,
@@ -416,35 +297,48 @@ private fun ThemePreviewCard(
             Text(
                 text = "07:30",
                 fontSize = 44.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 color = accentColor
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column {
-                    Text(
-                        text = "Будильник • Пн - Пт",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Сигнал сработает через 8 ч 15 мин",
-                        color = Color.Gray,
-                        fontSize = 11.sp
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(accentColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Alarm,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = "Будильник • Пн - Пт",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Сигнал сработает через 8 ч 15 мин",
+                            color = Color.Gray,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
-                Switch(
+                PureSwitch(
                     checked = true,
-                    onCheckedChange = {},
-                    colors = SwitchDefaults.colors(
-                        checkedTrackColor = accentColor,
-                        checkedThumbColor = MaterialTheme.colorScheme.surface
-                    )
+                    onCheckedChange = {}
                 )
             }
         }
@@ -454,7 +348,7 @@ private fun ThemePreviewCard(
 @Composable
 private fun ThemePresetsSection(
     accentColor: Color,
-    themeState: ThemeState,
+    themeState: com.necromagik.pureclock.data.ThemeState,
     onPresetSelect: (ThemePreset) -> Unit
 ) {
     SectionHeader(
@@ -474,22 +368,36 @@ private fun ThemePresetsSection(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 20.dp)
+            .padding(bottom = 14.dp)
     ) {
         items(ThemePresetsList, key = { it.id }) { preset ->
             val isSelected = themeState.accentColorHex.equals(preset.accentHex, ignoreCase = true) &&
                     themeState.cardCornerRadiusDp == preset.cornerRadiusDp &&
                     themeState.is3DEffectsEnabled == preset.is3dEnabled
 
-            Card(
-                shape = RoundedCornerShape(preset.cornerRadiusDp.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = if (isSelected) BorderStroke(2.dp, accentColor) else null,
+            val presetCardShape = RoundedCornerShape(preset.cornerRadiusDp.dp)
+
+            Box(
                 modifier = Modifier
-                    .width(200.dp)
-                    .bounceClick { onPresetSelect(preset) }
+                    .width(210.dp)
+                    .pure3DEffect(
+                        shape = presetCardShape,
+                        accentColor = if (isSelected) accentColor else Color.DarkGray,
+                        depthDp = if (isSelected) 8.dp else 2.dp,
+                        is3dEnabled = isSelected,
+                        isGlowEnabled = isSelected,
+                        surfaceColor = MaterialTheme.colorScheme.surface
+                    )
+                    .border(
+                        width = if (isSelected) 1.5.dp else 1.dp,
+                        color = if (isSelected) accentColor else Color.White.copy(alpha = 0.08f),
+                        shape = presetCardShape
+                    )
+                    .clickable { onPresetSelect(preset) }
+                    .bounceClick()
+                    .padding(16.dp)
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -497,7 +405,7 @@ private fun ThemePresetsSection(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(24.dp)
                                 .clip(CircleShape)
                                 .background(Color(preset.accentHex.toColorInt()))
                         )
@@ -510,7 +418,7 @@ private fun ThemePresetsSection(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = preset.name,
                         fontWeight = FontWeight.Bold,
@@ -539,21 +447,56 @@ private fun ThemeBaseModeSection(
     currentThemeMode: String,
     onModeSelect: (String) -> Unit
 ) {
+    val cardShape = RoundedCornerShape(cornerRadius)
+
     SectionHeader(text = "БАЗОВЫЙ РЕЖИМ", accentColor = accentColor)
 
-    Card(
-        shape = RoundedCornerShape(cornerRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Системная тема",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onSurface
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pure3DEffect(
+                shape = cardShape,
+                accentColor = accentColor,
+                depthDp = 4.dp,
+                is3dEnabled = false,
+                isGlowEnabled = false,
+                surfaceColor = MaterialTheme.colorScheme.surface
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            .padding(18.dp)
+    ) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accentColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Brightness4,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column {
+                    Text(
+                        text = "Системная тема",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Автоматическое или принудительное оформление",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 SegmentedButton(
@@ -582,13 +525,19 @@ private fun ThemeBaseModeSection(
     }
 }
 
+// ============================================================================
+// СЕКЦИЯ 4: РАСШИРЕННЫЕ НАСТРОЙКИ (ВКЛЮЧАЮТ DEPTH ENGINE, ЦВЕТА И СКРУГЛЕНИЯ)
+// ============================================================================
 @Composable
 private fun AdvancedCustomizationSection(
     accentColor: Color,
     cornerRadius: Dp,
-    themeState: ThemeState,
+    themeState: com.necromagik.pureclock.data.ThemeState,
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
+    on3DToggle: (Boolean) -> Unit,
+    onGlowToggle: (Boolean) -> Unit,
+    onDepthChange: (Int) -> Unit,
     onPureMonocolorToggle: (Boolean) -> Unit,
     onOpenColorDialog: () -> Unit,
     onSelectSystemAccent: () -> Unit,
@@ -599,38 +548,54 @@ private fun AdvancedCustomizationSection(
     val systemAccentColor = SystemThemeUtils.rememberSystemAccentColor()
     val isSystemAccentSelected = SystemThemeUtils.isSystemSelected(themeState.accentColorHex, context)
     val contrastingContentColor = SystemThemeUtils.getContrastingColor(systemAccentColor)
+    val cardShape = RoundedCornerShape(cornerRadius)
 
-    Card(
-        shape = RoundedCornerShape(cornerRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    // Кликабельная карточка-заголовок
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .bounceClick { onToggleExpand() }
+            .pure3DEffect(
+                shape = cardShape,
+                accentColor = accentColor,
+                depthDp = 4.dp,
+                is3dEnabled = false,
+                isGlowEnabled = false,
+                surfaceColor = MaterialTheme.colorScheme.surface
+            )
+            .clickable { onToggleExpand() }
+            .bounceClick()
+            .padding(18.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accentColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text(
                         text = "Расширенная кастомизация",
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (isExpanded) "Нажмите, чтобы скрыть" else "Свои цвета, AMOLED, скругления",
+                        text = if (isExpanded) "Нажмите, чтобы свернуть" else "3D Depth, AMOLED, палитра, углы",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )
@@ -649,14 +614,105 @@ private fun AdvancedCustomizationSection(
         enter = fadeIn(tween(300)) + expandVertically(),
         exit = fadeOut(tween(200)) + shrinkVertically()
     ) {
-        Column(modifier = Modifier.padding(top = 12.dp)) {
-            Card(
-                shape = RoundedCornerShape(cornerRadius),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+        Column(modifier = Modifier.padding(top = 14.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pure3DEffect(
+                        shape = cardShape,
+                        accentColor = accentColor,
+                        depthDp = themeState.depthIntensityDp.dp,
+                        is3dEnabled = themeState.is3DEffectsEnabled,
+                        isGlowEnabled = themeState.isNeonGlowEnabled,
+                        surfaceColor = MaterialTheme.colorScheme.surface
+                    )
+                    .padding(18.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column {
+                    // 1. БЛОК 3D DEPTH ENGINE
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "3D-Эффекты и слоистые тени",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (themeState.is3DEffectsEnabled) "Включен объем Drop Shadow" else "Плоский минимализм (2D Flat)",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        PureSwitch(
+                            checked = themeState.is3DEffectsEnabled,
+                            onCheckedChange = on3DToggle
+                        )
+                    }
 
+                    AnimatedVisibility(visible = themeState.is3DEffectsEnabled) {
+                        Column {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                color = Color.Gray.copy(alpha = 0.15f)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Неоновое свечение (Glow Effect)",
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Светодиодные фаски карточек и ореол стрелок",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                                PureSwitch(
+                                    checked = themeState.isNeonGlowEnabled,
+                                    onCheckedChange = onGlowToggle
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Text(
+                                text = "Глубина объема: ${themeState.depthIntensityDp} dp",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Slider(
+                                value = themeState.depthIntensityDp.toFloat(),
+                                onValueChange = { onDepthChange(it.toInt()) },
+                                valueRange = 2f..16f,
+                                steps = 7,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = accentColor,
+                                    activeTrackColor = accentColor,
+                                    inactiveTrackColor = Color.Gray.copy(alpha = 0.25f)
+                                )
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 14.dp),
+                        color = Color.Gray.copy(alpha = 0.15f)
+                    )
+
+                    // 2. ЧИСТЫЙ МОНОХРОМ
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -666,7 +722,8 @@ private fun AdvancedCustomizationSection(
                             Text(
                                 text = "Чистый монохром (Pure Contrast)",
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp
                             )
                             Text(
                                 text = "Абсолютно чёрный #000000 / Белый #FFFFFF",
@@ -674,21 +731,18 @@ private fun AdvancedCustomizationSection(
                                 color = Color.Gray
                             )
                         }
-                        Switch(
+                        PureSwitch(
                             checked = themeState.isPureMonocolor,
-                            onCheckedChange = onPureMonocolorToggle,
-                            colors = SwitchDefaults.colors(
-                                checkedTrackColor = accentColor,
-                                checkedThumbColor = MaterialTheme.colorScheme.surface
-                            )
+                            onCheckedChange = onPureMonocolorToggle
                         )
                     }
 
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 14.dp),
-                        color = Color.Gray.copy(alpha = 0.2f)
+                        color = Color.Gray.copy(alpha = 0.15f)
                     )
 
+                    // 3. ЦВЕТОВОЙ АКЦЕНТ
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -697,6 +751,7 @@ private fun AdvancedCustomizationSection(
                         Text(
                             text = "Цветовой акцент",
                             fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         TextButton(
@@ -710,7 +765,7 @@ private fun AdvancedCustomizationSection(
                                 tint = accentColor
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Точный выбор", color = accentColor, fontSize = 12.sp)
+                            Text("Точный выбор", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -741,13 +796,14 @@ private fun AdvancedCustomizationSection(
                                         color = if (isSelected) MaterialTheme.colorScheme.onSurface else if (isSystemMarker) Color.Gray.copy(alpha = 0.3f) else Color.Transparent,
                                         shape = CircleShape
                                     )
-                                    .bounceClick {
+                                    .clickable {
                                         if (isSystemMarker) {
                                             onSelectSystemAccent()
                                         } else {
                                             onAccentColorSelect(hex)
                                         }
-                                    },
+                                    }
+                                    .bounceClick(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isSystemMarker) {
@@ -771,12 +827,14 @@ private fun AdvancedCustomizationSection(
 
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 16.dp),
-                        color = Color.Gray.copy(alpha = 0.2f)
+                        color = Color.Gray.copy(alpha = 0.15f)
                     )
 
+                    // 4. ФОРМА ЭЛЕМЕНТОВ (СКРУГЛЕНИЯ)
                     Text(
                         text = "Форма элементов (Скругления)",
                         fontWeight = FontWeight.Medium,
+                        fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1009,7 +1067,7 @@ private fun AdvancedColorPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = {
                     try {
                         val formattedHex = if (!hexInput.startsWith("#")) "#$hexInput" else hexInput
@@ -1020,9 +1078,10 @@ private fun AdvancedColorPickerDialog(
                         isError = true
                     }
                 },
-                modifier = Modifier.bounceClick()
+                modifier = Modifier.bounceClick(),
+                colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.Black)
             ) {
-                Text("Применить", color = accentColor, fontWeight = FontWeight.Bold)
+                Text("Применить", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
