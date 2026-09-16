@@ -8,8 +8,6 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,10 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Vibration
@@ -120,7 +117,7 @@ fun AddEditAlarmScreen(
         }
     }
 
-    var isCalendarExpanded by remember { mutableStateOf(extraDates.isNotEmpty() || excludedDates.isNotEmpty()) }
+    var showCalendarModal by remember { mutableStateOf(false) }
 
     var label by remember { mutableStateOf(initialLabel) }
     var isVibrate by remember { mutableStateOf(true) }
@@ -254,7 +251,7 @@ fun AddEditAlarmScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Блок Повторов и Календаря с "дышащим" градиентным бордером
+            // Блок Повторов и Календаря
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -277,7 +274,7 @@ fun AddEditAlarmScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { isCalendarExpanded = !isCalendarExpanded },
+                            .clickable { showCalendarModal = true },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -302,11 +299,20 @@ fun AddEditAlarmScreen(
                             )
                         }
 
-                        IconButton(onClick = { isCalendarExpanded = !isCalendarExpanded }) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(accentColor.copy(alpha = 0.15f))
+                                .clickable { showCalendarModal = true }
+                                .bounceClick(),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Icon(
-                                imageVector = if (isCalendarExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = "Календарь",
-                                tint = MaterialTheme.colorScheme.onSurface
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = "Календарь дат",
+                                tint = accentColor,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -360,63 +366,12 @@ fun AddEditAlarmScreen(
                             }
                         }
                     }
-
-                    // Плавная «дышащая» анимация раскрытия календаря
-                    AnimatedVisibility(
-                        visible = isCalendarExpanded,
-                        enter = expandVertically(
-                            animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioMediumBouncy)
-                        ) + fadeIn(),
-                        exit = shrinkVertically(
-                            animationSpec = spring(stiffness = Spring.StiffnessLow)
-                        ) + fadeOut()
-                    ) {
-                        Column {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 12.dp),
-                                color = Color.Gray.copy(alpha = 0.15f)
-                            )
-
-                            AlarmCalendarView(
-                                selectedHour = selectedHour,
-                                selectedMinute = selectedMinute,
-                                daysMask = daysMask,
-                                extraDates = extraDates,
-                                excludedDates = excludedDates,
-                                onDateToggled = { date ->
-                                    val today = LocalDate.now()
-
-                                    if (date == today && !isTodaySelectable) {
-                                        return@AlarmCalendarView
-                                    }
-
-                                    val dayBit = 1 shl (date.dayOfWeek.value - 1)
-                                    val isRecurringDay = (daysMask and dayBit) != 0
-
-                                    if (isRecurringDay) {
-                                        excludedDates = if (excludedDates.contains(date)) {
-                                            excludedDates - date
-                                        } else {
-                                            excludedDates + date
-                                        }
-                                    } else {
-                                        extraDates = if (extraDates.contains(date)) {
-                                            extraDates - date
-                                        } else {
-                                            extraDates + date
-                                        }
-                                    }
-                                },
-                                accentColor = accentColor
-                            )
-                        }
-                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Блок мелодии, названия и вибрации с градиентной рамкой
+            // Блок мелодии, названия и вибрации
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -431,7 +386,7 @@ fun AddEditAlarmScreen(
                     .pureAnimatedBorder(
                         shape = cardShape,
                         accentColor = accentColor,
-                        enabled = false // статичный мягкий контур
+                        enabled = false
                     )
                     .padding(18.dp)
             ) {
@@ -537,6 +492,56 @@ fun AddEditAlarmScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
         }
+    }
+
+    // Модальное окно календаря со свайпами и пейджером
+    if (showCalendarModal) {
+        AlertDialog(
+            onDismissRequest = { showCalendarModal = false },
+            confirmButton = {
+                Button(
+                    onClick = { showCalendarModal = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.Black),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.bounceClick()
+                ) {
+                    Text("Готово", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                AlarmCalendarView(
+                    selectedHour = selectedHour,
+                    selectedMinute = selectedMinute,
+                    daysMask = daysMask,
+                    extraDates = extraDates,
+                    excludedDates = excludedDates,
+                    onDateToggled = { date ->
+                        val today = LocalDate.now()
+                        if (date == today && !isTodaySelectable) return@AlarmCalendarView
+
+                        val dayBit = 1 shl (date.dayOfWeek.value - 1)
+                        val isRecurringDay = (daysMask and dayBit) != 0
+
+                        if (isRecurringDay) {
+                            excludedDates = if (excludedDates.contains(date)) {
+                                excludedDates - date
+                            } else {
+                                excludedDates + date
+                            }
+                        } else {
+                            extraDates = if (extraDates.contains(date)) {
+                                extraDates - date
+                            } else {
+                                extraDates + date
+                            }
+                        }
+                    },
+                    accentColor = accentColor
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(28.dp)
+        )
     }
 
     if (showLabelDialog) {

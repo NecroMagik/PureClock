@@ -24,7 +24,12 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
     <application
+        android:name=".PureClockApp"
         android:allowBackup="true"
         android:defaultToDeviceProtectedStorage="true"
         android:directBootAware="true"
@@ -93,6 +98,12 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity" />
+
+        <service
+            android:name=".alarm.StopwatchService"
+            android:directBootAware="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
 
         <service
             android:name=".alarm.AlarmService"
@@ -186,6 +197,27 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/pureclock_widget_info" />
         </receiver>
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <meta-data
+            android:name="vivo.live_activity.support"
+            android:value="true" />
+        <meta-data
+            android:name="com.vivo.notification.support_capsule"
+            android:value="true" />
+        <meta-data
+            android:name="com.vivo.origin.capsule.type"
+            android:value="stopwatch|timer" />
 
     </application>
 </manifest>

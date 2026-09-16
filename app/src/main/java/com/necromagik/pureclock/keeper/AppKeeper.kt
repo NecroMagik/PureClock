@@ -85,6 +85,14 @@ object AppKeeper {
      * Фоновая периодическая проверка WorkManager (защита от гибернации профиля)
      */
     private fun schedulePeriodicKeeperWork(context: Context) {
+        val userManager = context.getSystemService(Context.USER_SERVICE) as? android.os.UserManager
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            if (userManager?.isUserUnlocked != true) {
+                Log.w(TAG, "--> [AppKeeper] Хранилище заблокировано (Direct Boot). Пропуск регистрации WorkManager.")
+                return
+            }
+        }
+
         try {
             val constraints = Constraints.Builder()
                 .setRequiresBatteryNotLow(false)

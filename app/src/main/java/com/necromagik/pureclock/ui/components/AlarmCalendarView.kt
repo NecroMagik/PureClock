@@ -1,15 +1,17 @@
 package com.necromagik.pureclock.ui.components
 
-import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -21,12 +23,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.necromagik.pureclock.ui.animation.bounceClick
+import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -34,30 +36,33 @@ import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
 
-private val RU_LOCALE = Locale("ru")
+private val RU_LOCALE = Locale.forLanguageTag("ru")
+private const val PAGER_START_OFFSET = 1200
 
-// ============================================================================
-// СЕКЦИЯ 1: КАЛЕНДАРНЫЙ ИНТЕРФЕЙС И РАСЧЕТ АКТИВНЫХ БУДУЩИХ ДНЕЙ
-// ============================================================================
-@OptIn(ExperimentalAnimationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AlarmCalendarView(
     selectedHour: Int,
     selectedMinute: Int,
-    daysMask: Int = 0, // Битовая маска выбранных дней недели (1=ПН, 2=ВТ, 4=СР, 8=ЧТ...)
-    extraDates: Set<LocalDate> = emptySet(), // Точечно добавленные даты
-    excludedDates: Set<LocalDate> = emptySet(), // Исключенные даты
+    daysMask: Int = 0,
+    extraDates: Set<LocalDate> = emptySet(),
+    excludedDates: Set<LocalDate> = emptySet(),
     onDateToggled: (LocalDate) -> Unit,
     accentColor: Color = MaterialTheme.colorScheme.primary,
     modifier: Modifier = Modifier
 ) {
-    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
-    var isNextMonthTransition by remember { mutableStateOf(true) }
+    val initialYearMonth = remember { YearMonth.now() }
+    val pagerState = rememberPagerState(initialPage = PAGER_START_OFFSET) { PAGER_START_OFFSET * 2 }
+    val coroutineScope = rememberCoroutineScope()
 
-    val today = LocalDate.now()
+    val currentMonth = remember(pagerState.currentPage) {
+        val monthOffset = (pagerState.currentPage - PAGER_START_OFFSET).toLong()
+        initialYearMonth.plusMonths(monthOffset)
+    }
+
+    val today = remember { LocalDate.now() }
     val nowTime = LocalTime.now()
 
-    // Проверяем, прошло ли выбранное время сегодня
     val isTimePastToday = remember(selectedHour, selectedMinute, nowTime) {
         val selectedTime = LocalTime.of(selectedHour, selectedMinute)
         selectedTime.isBefore(nowTime)
@@ -66,20 +71,21 @@ fun AlarmCalendarView(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = 4.dp)
     ) {
-        // Шапка календаря: переключение месяцев
+        // Шапка календаря: синхронизированные стрелки и название
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 4.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
                 onClick = {
-                    isNextMonthTransition = false
-                    currentMonth = currentMonth.minusMonths(1)
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                    }
                 },
                 modifier = Modifier.bounceClick()
             ) {
@@ -93,17 +99,19 @@ fun AlarmCalendarView(
             val monthTitle = currentMonth.month
                 .getDisplayName(TextStyle.FULL_STANDALONE, RU_LOCALE)
                 .replaceFirstChar { if (it.isLowerCase()) it.titlecase(RU_LOCALE) else it.toString() }
+
             Text(
                 text = "$monthTitle ${currentMonth.year}",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
             IconButton(
                 onClick = {
-                    isNextMonthTransition = true
-                    currentMonth = currentMonth.plusMonths(1)
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                    }
                 },
                 modifier = Modifier.bounceClick()
             ) {
@@ -115,13 +123,13 @@ fun AlarmCalendarView(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-// ============================================================================
-// СЕКЦИЯ 2: ЗАГОЛОВКИ ДНЕЙ НЕДЕЛИ (ПН..ВС)
-// ============================================================================
+        // Дни недели (ПН..ВС)
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
             horizontalArrangement = Arrangement.SpaceAround
         ) {
             val daysOfWeek = remember {
@@ -134,157 +142,147 @@ fun AlarmCalendarView(
                 Text(
                     text = day.getDisplayName(TextStyle.SHORT, RU_LOCALE)
                         .replaceFirstChar { if (it.isLowerCase()) it.titlecase(RU_LOCALE) else it.toString() },
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        var totalDragDistance by remember { mutableFloatStateOf(0f) }
+        // Пейджер месяцев, точно следящий за пальцем
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) { page ->
+            val pageMonth = remember(page) {
+                val offset = (page - PAGER_START_OFFSET).toLong()
+                initialYearMonth.plusMonths(offset)
+            }
 
-// ============================================================================
-// СЕКЦИЯ 3: ОТОБРАЖЕНИЕ ЯЧЕЕК С УЧЕТОМ АКТИВНОСТИ И ПРОШЕДШИХ СИГНАЛОВ
-// ============================================================================
-        AnimatedContent(
-            targetState = currentMonth,
-            transitionSpec = {
-                if (isNextMonthTransition) {
-                    (slideInHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { width -> width } + fadeIn()).togetherWith(
-                        slideOutHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { width -> -width } + fadeOut()
-                    )
-                } else {
-                    (slideInHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { width -> -width } + fadeIn()).togetherWith(
-                        slideOutHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { width -> width } + fadeOut()
-                    )
-                }
-            },
-            label = "CalendarMonthTransition"
-        ) { month ->
-            Column(
+            MonthGrid(
+                month = pageMonth,
+                today = today,
+                isTimePastToday = isTimePastToday,
+                daysMask = daysMask,
+                extraDates = extraDates,
+                excludedDates = excludedDates,
+                accentColor = accentColor,
+                onDateToggled = onDateToggled
+            )
+        }
+    }
+}
+
+@Composable
+private fun MonthGrid(
+    month: YearMonth,
+    today: LocalDate,
+    isTimePastToday: Boolean,
+    daysMask: Int,
+    extraDates: Set<LocalDate>,
+    excludedDates: Set<LocalDate>,
+    accentColor: Color,
+    onDateToggled: (LocalDate) -> Unit
+) {
+    val firstDayOfMonth = month.atDay(1)
+    val daysInMonth = month.lengthOfMonth()
+    val firstDayOfWeekOffset = firstDayOfMonth.dayOfWeek.value - 1
+
+    // Фиксируем ровно 6 строк для всех месяцев
+    val fixedRows = 6
+    var dayCounter = 1
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        for (row in 0 until fixedRows) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .pointerInput(month) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                if (totalDragDistance < -50f) {
-                                    isNextMonthTransition = true
-                                    currentMonth = currentMonth.plusMonths(1)
-                                } else if (totalDragDistance > 50f) {
-                                    isNextMonthTransition = false
-                                    currentMonth = currentMonth.minusMonths(1)
-                                }
-                                totalDragDistance = 0f
-                            },
-                            onHorizontalDrag = { _, dragAmount ->
-                                totalDragDistance += dragAmount
-                            }
-                        )
-                    }
+                    .padding(vertical = 3.dp),
+                horizontalArrangement = Arrangement.SpaceAround
             ) {
-                val firstDayOfMonth = month.atDay(1)
-                val daysInMonth = month.lengthOfMonth()
-                val firstDayOfWeekOffset = firstDayOfMonth.dayOfWeek.value - 1
+                for (col in 0 until 7) {
+                    val cellIndex = row * 7 + col
 
-                val totalCells = daysInMonth + firstDayOfWeekOffset
-                val rows = (totalCells + 6) / 7
+                    if (cellIndex < firstDayOfWeekOffset || dayCounter > daysInMonth) {
+                        // Пустая ячейка с сохранением точных пропорций сетки
+                        Spacer(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .padding(2.dp)
+                        )
+                    } else {
+                        val currentDate = month.atDay(dayCounter)
 
-                var dayCounter = 1
+                        val dayBit = 1 shl (currentDate.dayOfWeek.value - 1)
+                        val isDayOfWeekMasked = (daysMask and dayBit) != 0
+                        val isExcluded = excludedDates.contains(currentDate)
+                        val isExtra = extraDates.contains(currentDate)
 
-                for (row in 0 until rows) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        for (col in 0 until 7) {
-                            val cellIndex = row * 7 + col
-                            if (cellIndex < firstDayOfWeekOffset || dayCounter > daysInMonth) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            } else {
-                                val currentDate = month.atDay(dayCounter)
+                        val isToday = currentDate == today
+                        val isStrictlyPastDate = currentDate.isBefore(today)
+                        val isTodayTimePast = isToday && isTimePastToday
+                        val isOccurredInPast = isStrictlyPastDate || isTodayTimePast
 
-                                val dayBit = 1 shl (currentDate.dayOfWeek.value - 1)
-                                val isDayOfWeekMasked = (daysMask and dayBit) != 0
-                                val isExcluded = excludedDates.contains(currentDate)
-                                val isExtra = extraDates.contains(currentDate)
+                        val isDayActive = (isDayOfWeekMasked && !isExcluded) || isExtra
+                        val isClickable = !isStrictlyPastDate
 
-                                val isToday = currentDate == today
-                                val isStrictlyPastDate = currentDate.isBefore(today)
+                        val animatedScale by animateFloatAsState(
+                            targetValue = if (isDayActive && !isOccurredInPast) 1.05f else 1.0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            ),
+                            label = "CellScale"
+                        )
 
-                                // Проверяем, считается ли сегодняшний день уже прошедшим по времени
-                                val isTodayTimePast = isToday && isTimePastToday
-
-                                // День считается прошедшим витком, если дата строго в прошлом или это сегодня и время ушло
-                                val isOccurredInPast = isStrictlyPastDate || isTodayTimePast
-
-                                // Активность визуального выделения дня
-                                val isDayActive = (isDayOfWeekMasked && !isExcluded) || isExtra
-
-                                // Кликабельность: прошлые календарные даты некликабельны
-                                val isClickable = !isStrictlyPastDate
-
-                                val animatedScale by animateFloatAsState(
-                                    targetValue = if (isDayActive && !isOccurredInPast) 1.05f else 1.0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessLow
-                                    ),
-                                    label = "CellScale"
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f)
-                                        .padding(2.dp)
-                                        .graphicsLayer {
-                                            scaleX = animatedScale
-                                            scaleY = animatedScale
-                                        }
-                                        .then(if (isClickable) Modifier.bounceClick() else Modifier)
-                                        .clip(CircleShape)
-                                        .background(
-                                            when {
-                                                // Активный будущий день вызова (Яркий акцент)
-                                                isDayActive && !isOccurredInPast -> accentColor
-                                                // Прошедший виток акцентного дня (Приглушенный контур/фон)
-                                                isDayActive && isOccurredInPast -> accentColor.copy(alpha = 0.25f)
-                                                // Сегодняшний день (Мягкое подсвечивание)
-                                                isToday -> accentColor.copy(alpha = 0.12f)
-                                                else -> Color.Transparent
-                                            }
-                                        )
-                                        .then(
-                                            if (isExcluded) {
-                                                Modifier.border(1.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
-                                            } else Modifier
-                                        )
-                                        .clickable(enabled = isClickable) { onDateToggled(currentDate) }
-                                        .alpha(if (isStrictlyPastDate) 0.35f else 1.0f),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = dayCounter.toString(),
-                                        fontSize = 14.sp,
-                                        fontWeight = if (isDayActive || isToday) FontWeight.Bold else FontWeight.Normal,
-                                        color = when {
-                                            isDayActive && !isOccurredInPast -> MaterialTheme.colorScheme.surface
-                                            isDayActive && isOccurredInPast -> accentColor
-                                            isStrictlyPastDate -> Color.Gray
-                                            isToday -> accentColor
-                                            else -> MaterialTheme.colorScheme.onSurface
-                                        }
-                                    )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .padding(2.dp)
+                                .graphicsLayer {
+                                    scaleX = animatedScale
+                                    scaleY = animatedScale
                                 }
-                                dayCounter++
-                            }
+                                .then(if (isClickable) Modifier.bounceClick() else Modifier)
+                                .clip(CircleShape)
+                                .background(
+                                    when {
+                                        isDayActive && !isOccurredInPast -> accentColor
+                                        isDayActive && isOccurredInPast -> accentColor.copy(alpha = 0.25f)
+                                        isToday -> accentColor.copy(alpha = 0.12f)
+                                        else -> Color.Transparent
+                                    }
+                                )
+                                .then(
+                                    if (isExcluded) {
+                                        Modifier.border(1.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
+                                    } else Modifier
+                                )
+                                .clickable(enabled = isClickable) { onDateToggled(currentDate) }
+                                .alpha(if (isStrictlyPastDate) 0.35f else 1.0f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = dayCounter.toString(),
+                                fontSize = 13.sp,
+                                fontWeight = if (isDayActive || isToday) FontWeight.Bold else FontWeight.Normal,
+                                color = when {
+                                    isDayActive && !isOccurredInPast -> Color.Black
+                                    isDayActive && isOccurredInPast -> accentColor
+                                    isStrictlyPastDate -> Color.Gray
+                                    isToday -> accentColor
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                }
+                            )
                         }
+                        dayCounter++
                     }
                 }
             }

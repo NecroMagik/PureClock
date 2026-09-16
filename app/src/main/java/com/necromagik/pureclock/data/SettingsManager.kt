@@ -132,13 +132,14 @@ class SettingsManager private constructor(context: Context) {
     fun getRuStoreUpdateManager(): RuStoreUpdateManager = _ruStoreUpdateManager
 
     suspend fun checkGooglePlayInAppUpdates(): AppUpdateInfo? {
-        if (getInstallationSource() != InstallSource.GOOGLE_PLAY) return null
+        val source = getInstallationSource()
+        if (source != InstallSource.GOOGLE_PLAY && source != InstallSource.SYSTEM_PREBUILT) return null
         return _googlePlayUpdateManager.checkUpdateAvailability()
     }
 
-    suspend fun checkRuStoreInAppUpdates(): Boolean {
-        if (getInstallationSource() != InstallSource.RUSTORE) return false
-        return _ruStoreUpdateManager.checkUpdateAvailability() != null
+    suspend fun checkRuStoreInAppUpdates(): RuStoreUpdateManager.RuStoreAppInfo? {
+        if (getInstallationSource() != InstallSource.RUSTORE) return null
+        return _ruStoreUpdateManager.checkUpdateAvailability()
     }
 
     var selectedAnalogStyle: AnalogStyle
@@ -241,16 +242,31 @@ class SettingsManager private constructor(context: Context) {
     fun getInstallationSource(): InstallSource {
         return try {
             val packageName = appContext.packageName
-            val installerPackageName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                appContext.packageManager.getInstallSourceInfo(packageName).installingPackageName
+            val appInfo = appContext.applicationInfo
+
+            val isSystemApp = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                    (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+
+            val (installingPkg, initiatingPkg) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val sourceInfo = appContext.packageManager.getInstallSourceInfo(packageName)
+                Pair(sourceInfo.installingPackageName, sourceInfo.initiatingPackageName)
             } else {
                 @Suppress("DEPRECATION")
-                appContext.packageManager.getInstallerPackageName(packageName)
+                val installer = appContext.packageManager.getInstallerPackageName(packageName)
+                Pair(installer, installer)
             }
 
-            when (installerPackageName) {
-                "com.android.vending" -> InstallSource.GOOGLE_PLAY
-                "ru.rustore" -> InstallSource.RUSTORE
+            fun matches(vararg targets: String): Boolean {
+                return targets.any { target ->
+                    installingPkg?.contains(target, ignoreCase = true) == true ||
+                            initiatingPkg?.contains(target, ignoreCase = true) == true
+                }
+            }
+
+            when {
+                matches("com.android.vending") -> InstallSource.GOOGLE_PLAY
+                matches("ru.vk.store", "ru.rustore") -> InstallSource.RUSTORE
+                isSystemApp -> InstallSource.SYSTEM_PREBUILT
                 else -> InstallSource.UNKNOWN_OR_GITHUB
             }
         } catch (_: Exception) {
@@ -259,8 +275,9 @@ class SettingsManager private constructor(context: Context) {
     }
 
     enum class InstallSource(val title: String, val isOfficial: Boolean) {
-        GOOGLE_PLAY("Официальная сборка (Google Play)", true),
-        RUSTORE("Официальная сборка (RuStore)", true),
+        GOOGLE_PLAY("Маркет (Google Play)", true),
+        SYSTEM_PREBUILT("Система", true),
+        RUSTORE("Маркет (RuStore)", true),
         UNKNOWN_OR_GITHUB("Неизвестный источник / GitHub", false)
     }
 

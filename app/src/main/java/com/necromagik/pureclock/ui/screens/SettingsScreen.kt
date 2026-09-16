@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,7 +47,7 @@ import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
 
-private const val APP_VERSION = "1.29a"
+private const val APP_VERSION = "1.33"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,6 +113,7 @@ private fun SettingsMainContent(
     var showNoUpdatesToast by remember { mutableStateOf(false) }
 
     val warningColor = Color(0xFFFF9800)
+    val pureOsBlueColor = Color(0xFF2979FF)
 
     val playUpdateLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
@@ -293,8 +295,31 @@ private fun SettingsMainContent(
 
             // 1. Статус источника установки
             item {
+                val isSystemPrebuilt = installSource == SettingsManager.InstallSource.SYSTEM_PREBUILT
                 val isOfficial = installSource.isOfficial
-                val sourceAccent = if (isOfficial) themeConfig.accentColor else warningColor
+
+                val sourceAccent = when {
+                    isSystemPrebuilt -> pureOsBlueColor
+                    isOfficial -> themeConfig.accentColor
+                    else -> warningColor
+                }
+
+                val statusBadgeText = when (installSource) {
+                    SettingsManager.InstallSource.SYSTEM_PREBUILT -> "Pure OS"
+                    SettingsManager.InstallSource.GOOGLE_PLAY,
+                    SettingsManager.InstallSource.RUSTORE -> "Официальная версия"
+                    else -> "Сторонний источник"
+                }
+
+                val statusDescription = when (installSource) {
+                    SettingsManager.InstallSource.SYSTEM_PREBUILT ->
+                        "Приложение является системным. Интеграция с Google Play"
+                    SettingsManager.InstallSource.GOOGLE_PLAY,
+                    SettingsManager.InstallSource.RUSTORE ->
+                        "Сборка проверена цифровой подписью репозитория маркета."
+                    else ->
+                        "Внимание: сборка из стороннего источника. Переустановите приложение из маркета, если не являетесь бета-тестером"
+                }
 
                 Box(
                     modifier = Modifier
@@ -321,7 +346,11 @@ private fun SettingsMainContent(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = if (isOfficial) Icons.Default.Verified else Icons.Default.Warning,
+                                imageVector = when {
+                                    isSystemPrebuilt -> Icons.Default.SettingsSuggest
+                                    isOfficial -> Icons.Default.Verified
+                                    else -> Icons.Default.Warning
+                                },
                                 contentDescription = null,
                                 tint = sourceAccent,
                                 modifier = Modifier.size(24.dp)
@@ -331,36 +360,39 @@ private fun SettingsMainContent(
                         Spacer(modifier = Modifier.width(14.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isSystemPrebuilt) "Система " else installSource.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = installSource.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = sourceAccent.copy(alpha = 0.15f)
                                 ) {
                                     Text(
-                                        text = if (isOfficial) "Официально" else "Неизвестно",
+                                        text = statusBadgeText,
                                         color = sourceAccent,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = if (isOfficial) {
-                                    "Сборка проверена цифровой подписью репозитория маркета."
-                                } else {
-                                    "Внимание: сборка из стороннего источника. Переустановите приложение из маркета, если не являетесь бета-тестером"
-                                },
+                                text = statusDescription,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontSize = 11.sp,
                                 color = if (isOfficial) Color.Gray else warningColor,
@@ -373,7 +405,8 @@ private fun SettingsMainContent(
 
             // 2. Интеграция In-App обновления для Google Play (и заглушка RuStore)
             if (!allowBetaUpdates && installSource.isOfficial) {
-                val isPlay = installSource == SettingsManager.InstallSource.GOOGLE_PLAY
+                val isPlay = installSource == SettingsManager.InstallSource.GOOGLE_PLAY ||
+                        installSource == SettingsManager.InstallSource.SYSTEM_PREBUILT
                 val isRuStore = installSource == SettingsManager.InstallSource.RUSTORE
 
                 item {
@@ -423,10 +456,13 @@ private fun SettingsMainContent(
                             } else if (isRuStore) {
                                 if (!isCheckingStoreUpdates) {
                                     isCheckingStoreUpdates = true
+                                    showNoUpdatesToast = false
                                     coroutineScope.launch {
-                                        val isAvailable = settingsManager.checkRuStoreInAppUpdates()
+                                        val updateInfo = settingsManager.checkRuStoreInAppUpdates()
                                         isCheckingStoreUpdates = false
-                                        if (!isAvailable) {
+                                        if (updateInfo != null) {
+                                            settingsManager.getRuStoreUpdateManager().openStorePage()
+                                        } else {
                                             showNoUpdatesToast = true
                                         }
                                     }

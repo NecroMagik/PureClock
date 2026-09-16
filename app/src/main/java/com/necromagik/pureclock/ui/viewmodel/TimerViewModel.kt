@@ -8,6 +8,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.necromagik.pureclock.alarm.TimerReceiver
 import com.necromagik.pureclock.alarm.TimerService
+import com.necromagik.pureclock.util.ClockNotificationManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,12 +23,12 @@ enum class TimerExecutionMode { CHAIN, PARALLEL }
 
 data class TimerItem(
     val id: String = java.util.UUID.randomUUID().toString(),
-val label: String = "Таймер",
-val initialTimeSeconds: Long = 300L,
-var remainingSeconds: Long = 300L,
-var remainingMillis: Long = 300_000L,
-var state: TimerState = TimerState.IDLE,
-var endTimestampMillis: Long = 0L
+    val label: String = "Таймер",
+    val initialTimeSeconds: Long = 300L,
+    var remainingSeconds: Long = 300L,
+    var remainingMillis: Long = 300_000L,
+    var state: TimerState = TimerState.IDLE,
+    var endTimestampMillis: Long = 0L
 )
 
 class TimerViewModel(application: Application) : AndroidViewModel(application) {
@@ -105,14 +106,13 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                             val leftSec = (diffMillis + 999L) / 1000L
                             currentList[i] = item.copy(
                                 remainingMillis = diffMillis,
-                            remainingSeconds = leftSec
+                                remainingSeconds = leftSec
                             )
                         } else {
-                            // Таймер завершился — активируем экран и звук тревоги
                             currentList[i] = item.copy(
                                 remainingMillis = 0L,
-                            remainingSeconds = 0L,
-                            state = TimerState.COMPLETED
+                                remainingSeconds = 0L,
+                                state = TimerState.COMPLETED
                             )
                             TimerReceiver.cancelTimerAlarm(getApplication(), item.id)
                             TimerService.triggerAlarm(getApplication(), item.id, item.label, item.initialTimeSeconds)
@@ -126,6 +126,10 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                 if (_isChainRunning.value != hasActiveTimers) {
                     _isChainRunning.value = hasActiveTimers
                     updateServiceState(hasActiveTimers)
+
+                    if (!hasActiveTimers) {
+                        ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
+                    }
                 }
 
                 delay(100L)
@@ -137,7 +141,6 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         if (isRunning) {
             TimerService.startService(getApplication())
         } else {
-            // Не выключаем службу, пока звенит тревога завершенного таймера
             if (!TimerService.isRinging) {
                 TimerService.stopService(getApplication())
             }
@@ -167,16 +170,16 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                     val triggerTime = System.currentTimeMillis() + nextItem.remainingMillis
                     list[index + 1] = nextItem.copy(
                         state = TimerState.RUNNING,
-                    endTimestampMillis = triggerTime
+                        endTimestampMillis = triggerTime
                     )
 
                     val durationText = formatDurationText(nextItem.initialTimeSeconds)
                     TimerReceiver.scheduleTimerAlarm(
                         getApplication(),
-                    nextItem.id,
-                    nextItem.label,
-                    durationText,
-                    triggerTime
+                        nextItem.id,
+                        nextItem.label,
+                        durationText,
+                        triggerTime
                     )
                 }
             }
@@ -193,10 +196,10 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         val millis = seconds * 1000L
         val newItem = TimerItem(
             label = label.ifBlank { "Таймер ${list.size + 1}" },
-        initialTimeSeconds = seconds,
-        remainingSeconds = seconds,
-        remainingMillis = millis,
-        state = TimerState.IDLE
+            initialTimeSeconds = seconds,
+            remainingSeconds = seconds,
+            remainingMillis = millis,
+            state = TimerState.IDLE
         )
         list.add(newItem)
         _timersList.value = list
@@ -206,6 +209,7 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleSingleTimer(id: String) {
         val list = _timersList.value.toMutableList()
         val index = list.indexOfFirst { it.id == id }
+
         if (index != -1) {
             val item = list[index]
             val now = System.currentTimeMillis()
@@ -215,31 +219,46 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                 val exactRemaining = (item.endTimestampMillis - now).coerceAtLeast(0L)
                 list[index] = item.copy(
                     state = TimerState.PAUSED,
-                remainingMillis = exactRemaining,
-                remainingSeconds = (exactRemaining + 999L) / 1000L
+                    remainingMillis = exactRemaining,
+                    remainingSeconds = (exactRemaining + 999L) / 1000L
                 )
             } else if (item.remainingMillis > 0L) {
                 val triggerTime = now + item.remainingMillis
                 list[index] = item.copy(
                     state = TimerState.RUNNING,
-                endTimestampMillis = triggerTime
+                    endTimestampMillis = triggerTime
                 )
 
                 val durationText = formatDurationText(item.initialTimeSeconds)
                 TimerReceiver.scheduleTimerAlarm(
                     getApplication(),
-                item.id,
-                item.label,
-                durationText,
-                triggerTime
+                    item.id,
+                    item.label,
+                    durationText,
+                    triggerTime
                 )
             }
+
             _timersList.value = list
             saveTimersToStorage()
-        }
 
-        val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
-        updateServiceState(hasRunning)
+            val updatedItem = list[index]
+            val hasRunning = list.any { it.state == TimerState.RUNNING }
+
+            if (updatedItem.state == TimerState.RUNNING || updatedItem.state == TimerState.PAUSED) {
+                ClockNotificationManager.showTimerNotification(
+                    context = getApplication(),
+                    timerId = updatedItem.id,
+                    remainingMillis = updatedItem.remainingMillis,
+                    label = updatedItem.label,
+                    isRunning = updatedItem.state == TimerState.RUNNING
+                )
+            } else {
+                ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
+            }
+
+            updateServiceState(hasRunning)
+        }
     }
 
     fun resetSingleTimer(id: String) {
@@ -251,13 +270,17 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             val initMillis = item.initialTimeSeconds * 1000L
             list[index] = item.copy(
                 remainingSeconds = item.initialTimeSeconds,
-            remainingMillis = initMillis,
-            state = TimerState.IDLE
+                remainingMillis = initMillis,
+                state = TimerState.IDLE
             )
             _timersList.value = list
             saveTimersToStorage()
         }
+
         val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
+        if (!hasRunning) {
+            ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
+        }
         updateServiceState(hasRunning)
     }
 
@@ -272,6 +295,9 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             _currentTimerIndex.value = (list.size - 1).coerceAtLeast(0)
         }
         val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
+        if (!hasRunning) {
+            ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
+        }
         updateServiceState(hasRunning)
     }
 
@@ -281,8 +307,10 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         val extraMillis = extraSeconds * 1000L
         val triggerTime = System.currentTimeMillis() + extraMillis
 
+        val finalId: String
         if (index != -1) {
             val item = list[index]
+            finalId = item.id
             list[index] = item.copy(
                 initialTimeSeconds = extraSeconds,
                 remainingSeconds = extraSeconds,
@@ -291,9 +319,9 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                 endTimestampMillis = triggerTime
             )
         } else {
-            // Если карточка была удалена, восстанавливаем её живой
+            finalId = timerId ?: java.util.UUID.randomUUID().toString()
             val newItem = TimerItem(
-                id = timerId ?: java.util.UUID.randomUUID().toString(),
+                id = finalId,
                 label = label.ifBlank { "Таймер" },
                 initialTimeSeconds = extraSeconds,
                 remainingSeconds = extraSeconds,
@@ -308,14 +336,22 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         saveTimersToStorage()
 
         val durationText = formatDurationText(extraSeconds)
-        val activeId = if (index != -1) list[index].id else list.last().id
         TimerReceiver.scheduleTimerAlarm(
             getApplication(),
-            activeId,
+            finalId,
             label,
             durationText,
             triggerTime
         )
+
+        ClockNotificationManager.showTimerNotification(
+            context = getApplication(),
+            timerId = finalId,
+            remainingMillis = extraMillis,
+            label = label,
+            isRunning = true
+        )
+
         updateServiceState(true)
     }
 }

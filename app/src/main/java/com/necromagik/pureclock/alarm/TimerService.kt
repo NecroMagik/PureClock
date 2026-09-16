@@ -15,17 +15,19 @@ import com.google.gson.reflect.TypeToken
 import com.necromagik.pureclock.R
 import com.necromagik.pureclock.ui.viewmodel.TimerItem
 import com.necromagik.pureclock.ui.viewmodel.TimerState
+import com.necromagik.pureclock.util.ClockNotificationManager
 
 class TimerService : Service() {
 
     companion object {
-        private const val NOTIFICATION_ID = 2002
+        const val NOTIFICATION_ID = ClockNotificationManager.NOTIFICATION_ID_TIMER
         private const val ALARM_NOTIFICATION_ID = 2003
-        private const val CHANNEL_ID = "pureclock_timer_channel"
         private const val ALARM_CHANNEL_ID = "pureclock_timer_alarm_channel"
 
         const val ACTION_TRIGGER_ALARM = "com.necromagik.pureclock.ACTION_TRIGGER_TIMER_ALARM"
         const val ACTION_EXTEND_TIMER = "com.necromagik.pureclock.ACTION_EXTEND_TIMER"
+        const val ACTION_PAUSE_TIMER = "com.necromagik.pureclock.ACTION_PAUSE_TIMER"
+        const val ACTION_RESUME_TIMER = "com.necromagik.pureclock.ACTION_RESUME_TIMER"
         const val EXTRA_TIMER_ID = "extra_timer_id"
         const val EXTRA_LABEL = "extra_timer_label"
         const val EXTRA_DURATION_SECONDS = "extra_timer_duration_seconds"
@@ -80,7 +82,8 @@ class TimerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannels()
+        createAlarmNotificationChannel()
+        ClockNotificationManager.initChannels(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -99,49 +102,94 @@ class TimerService : Service() {
                 val minutesToAdd = intent.getIntExtra(EXTRA_ADD_MINUTES, 1)
                 handleExtendTimer(timerId, label, minutesToAdd)
             }
+            ACTION_PAUSE_TIMER -> {
+                val timerId = intent.getStringExtra(EXTRA_TIMER_ID)
+                handlePauseTimer(timerId)
+            }
+            ACTION_RESUME_TIMER -> {
+                val timerId = intent.getStringExtra(EXTRA_TIMER_ID)
+                handleResumeTimer(timerId)
+            }
             else -> {
-                val notification = buildForegroundNotification()
-                startForeground(NOTIFICATION_ID, notification)
+                startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
             }
         }
         return START_STICKY
     }
 
-    private fun handleExtendTimer(timerId: String?, label: String, minutesToAdd: Int) {
-        val extraSec = minutesToAdd * 60L
-        val extraMillis = extraSec * 1000L
-        val triggerTime = System.currentTimeMillis() + extraMillis
-
-        // 1. Обновляем JSON в SharedPreferences, чтобы карточка ожила в UI и ViewModel подхватила ее
+    private fun handlePauseTimer(timerId: String?) {
         val prefs = getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
         val gson = Gson()
-        val json = prefs.getString("saved_timers_list", null)
-
-        val list = if (!json.isNullOrEmpty()) {
-            try {
-                val type = object : TypeToken<MutableList<TimerItem>>() {}.type
-                gson.fromJson<MutableList<TimerItem>>(json, type) ?: mutableListOf()
-            } catch (_: Exception) {
-                mutableListOf()
-            }
-        } else mutableListOf()
-
-        val index = if (!timerId.isNullOrEmpty()) list.indexOfFirst { it.id == timerId } else -1
-        val finalId = if (index != -1) {
+        val json = prefs.getString("saved_timers_list", null) ?: return
+        val type = object : TypeToken<MutableList<TimerItem>>() {}.type
+        val list: MutableList<TimerItem> = gson.fromJson(json, type) ?: return
+        val index = list.indexOfFirst { it.id == timerId || (timerId == null && it.state == TimerState.RUNNING) }
+        if (index != -1) {
             val item = list[index]
+            val exactRemaining = (item.endTimestampMillis - System.currentTimeMillis()).coerceAtLeast(0L)
             list[index] = item.copy(
-                initialTimeSeconds = extraSec,
-                remainingSeconds = extraSec,
-                remainingMillis = extraMillis,
+                state = TimerState.PAUSED,
+                remainingMillis = exactRemaining,
+                remainingSeconds = (exactRemaining + 999L) / 1000L
+            )
+            prefs.edit().putString("saved_timers_list", gson.toJson(list)).apply()
+            TimerReceiver.cancelTimerAlarm(this, item.id)
+            startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+        }
+    }
+
+    private fun handleResumeTimer(timerId: String?) {
+        val prefs = getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
+        val gson = Gson()
+        val json = prefs.getString("saved_timers_list", null) ?: return
+        val type = object : TypeToken<MutableList<TimerItem>>() {}.type
+        val list: MutableList<TimerItem> = gson.fromJson(json, type) ?: return
+        val index = list.indexOfFirst { it.id == timerId || (timerId == null && it.state == TimerState.PAUSED) }
+        if (index != -1) {
+            val item = list[index]
+            val triggerTime = System.currentTimeMillis() + item.remainingMillis
+            list[index] = item.copy(
                 state = TimerState.RUNNING,
                 endTimestampMillis = triggerTime
             )
-            item.id
+            prefs.edit().putString("saved_timers_list", gson.toJson(list)).apply()
+            TimerReceiver.scheduleTimerAlarm(this, item.id, item.label, "${(item.remainingMillis / 60000)} мин", triggerTime)
+            startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+        }
+    }
+
+    private fun handleExtendTimer(timerId: String?, label: String, minutesToAdd: Int) {
+        val extraSec = minutesToAdd * 60L
+        val extraMillis = extraSec * 1000L
+
+        val prefs = getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
+        val gson = Gson()
+        val json = prefs.getString("saved_timers_list", null)
+        val type = object : TypeToken<MutableList<TimerItem>>() {}.type
+        val list: MutableList<TimerItem> = if (!json.isNullOrEmpty()) gson.fromJson(json, type) ?: mutableListOf() else mutableListOf()
+
+        val index = if (!timerId.isNullOrEmpty()) list.indexOfFirst { it.id == timerId } else list.indexOfFirst { it.state == TimerState.RUNNING }
+        val finalId: String
+        val triggerTime: Long
+
+        if (index != -1) {
+            val item = list[index]
+            val currentBase = if (item.state == TimerState.RUNNING) item.endTimestampMillis else System.currentTimeMillis() + item.remainingMillis
+            triggerTime = currentBase + extraMillis
+            val newRemainingMillis = (triggerTime - System.currentTimeMillis()).coerceAtLeast(0L)
+            list[index] = item.copy(
+                remainingSeconds = (newRemainingMillis + 999L) / 1000L,
+                remainingMillis = newRemainingMillis,
+                state = TimerState.RUNNING,
+                endTimestampMillis = triggerTime
+            )
+            finalId = item.id
         } else {
-            val newId = timerId ?: java.util.UUID.randomUUID().toString()
+            finalId = timerId ?: java.util.UUID.randomUUID().toString()
+            triggerTime = System.currentTimeMillis() + extraMillis
             list.add(
                 TimerItem(
-                    id = newId,
+                    id = finalId,
                     label = label,
                     initialTimeSeconds = extraSec,
                     remainingSeconds = extraSec,
@@ -150,25 +198,43 @@ class TimerService : Service() {
                     endTimestampMillis = triggerTime
                 )
             )
-            newId
         }
 
         prefs.edit().putString("saved_timers_list", gson.toJson(list)).apply()
+        TimerReceiver.scheduleTimerAlarm(this, finalId, label, "$minutesToAdd мин", triggerTime)
 
-        // 2. Планируем системный AlarmClock
-        TimerReceiver.scheduleTimerAlarm(
-            this,
-            finalId,
-            label,
-            "$minutesToAdd мин",
-            triggerTime
-        )
-
-        // 3. Переводим службу в фоновый статус без звона
-        val notification = buildForegroundNotification()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(ALARM_NOTIFICATION_ID)
-        startForeground(NOTIFICATION_ID, notification)
+        startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+    }
+
+    private fun buildLiveTimerNotification(): Notification {
+        val prefs = getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
+        val json = prefs.getString("saved_timers_list", null)
+        val list = if (!json.isNullOrEmpty()) {
+            try {
+                val type = object : TypeToken<List<TimerItem>>() {}.type
+                Gson().fromJson<List<TimerItem>>(json, type) ?: emptyList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else emptyList()
+
+        val activeTimer = list.firstOrNull { it.state == TimerState.RUNNING }
+            ?: list.firstOrNull { it.state == TimerState.PAUSED }
+
+        val remaining = activeTimer?.remainingMillis ?: 0L
+        val label = activeTimer?.label ?: "Таймер"
+        val activeId = activeTimer?.id ?: ""
+        val isRunning = activeTimer?.state == TimerState.RUNNING
+
+        return ClockNotificationManager.buildTimerNotification(
+            context = this,
+            timerId = activeId,
+            remainingMillis = remaining,
+            label = label,
+            isRunning = isRunning
+        )
     }
 
     private fun triggerTimerFullScreenAlarm(timerId: String?, label: String, durationSeconds: Long) {
@@ -183,24 +249,23 @@ class TimerService : Service() {
         val fullScreenPendingIntent = PendingIntent.getActivity(
             this,
             2004,
-        alertIntent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            alertIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-        .setContentTitle("Таймер завершен!")
-        .setContentText(label)
-        .setPriority(NotificationCompat.PRIORITY_MAX)
-        .setCategory(NotificationCompat.CATEGORY_ALARM)
-        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-        .setFullScreenIntent(fullScreenPendingIntent, true)
-        .setOngoing(true)
-        .setAutoCancel(false)
-        .build()
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Таймер завершен!")
+            .setContentText(label)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(fullScreenPendingIntent, true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .build()
 
         startForeground(ALARM_NOTIFICATION_ID, notification)
-
         try {
             startActivity(alertIntent)
         } catch (e: Exception) {
@@ -208,42 +273,24 @@ class TimerService : Service() {
         }
     }
 
-    private fun buildForegroundNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-        .setContentTitle("PureClock")
-        .setContentText("Таймер работает в фоне")
-        .setPriority(NotificationCompat.PRIORITY_LOW)
-        .setOngoing(true)
-        .build()
-    }
-
-    private fun createNotificationChannels() {
+    private fun createAlarmNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "Фоновая служба таймера",
-            NotificationManager.IMPORTANCE_LOW
-            )
-
             val alarmChannel = NotificationChannel(
                 ALARM_CHANNEL_ID,
                 "Сигнал таймера",
-            NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 setBypassDnd(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
-
-            manager.createNotificationChannel(serviceChannel)
             manager.createNotificationChannel(alarmChannel)
         }
     }
 
     override fun onDestroy() {
         isRinging = false
+        ClockNotificationManager.cancel(this, NOTIFICATION_ID)
         super.onDestroy()
     }
 

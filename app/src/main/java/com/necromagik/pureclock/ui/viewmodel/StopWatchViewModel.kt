@@ -1,8 +1,15 @@
 package com.necromagik.pureclock.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.necromagik.pureclock.alarm.StopwatchService
+import com.necromagik.pureclock.data.SettingsManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,9 +18,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 enum class LapType {
-    BEST,    // Зеленый (самый быстрый)
-    WORST,   // Красный (самый медленный)
-    NEUTRAL  // Белый (обычный / незачёт)
+    BEST,
+    WORST,
+    NEUTRAL
 }
 
 data class LapRecord(
@@ -24,6 +31,8 @@ data class LapRecord(
 )
 
 class StopwatchViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val settingsManager = SettingsManager.getInstance(application)
 
     private val _elapsedMillis = MutableStateFlow(0L)
     val elapsedMillis: StateFlow<Long> = _elapsedMillis.asStateFlow()
@@ -52,6 +61,13 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
         _isRunning.value = true
         startTime = System.currentTimeMillis() - _elapsedMillis.value
         timerJob?.cancel()
+
+        StopwatchService.start(
+            context = getApplication(),
+            startTimeMillis = _elapsedMillis.value,
+            lapCount = _laps.value.size
+        )
+
         timerJob = viewModelScope.launch {
             while (_isRunning.value) {
                 val now = System.currentTimeMillis()
@@ -61,7 +77,7 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
                 val lastTotalBeforeCurrentLap = _laps.value.sumOf { it.lapTimeMillis }
                 _currentLapMillis.value = (currentElapsed - lastTotalBeforeCurrentLap).coerceAtLeast(0L)
 
-                delay(8L) // Ультраплавные ~120 FPS обновления для стрелок
+                delay(8L)
             }
         }
     }
@@ -69,6 +85,12 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
     private fun pause() {
         _isRunning.value = false
         timerJob?.cancel()
+
+        StopwatchService.pause(
+            context = getApplication(),
+            startTimeMillis = _elapsedMillis.value,
+            lapCount = _laps.value.size
+        )
     }
 
     fun reset() {
@@ -76,24 +98,56 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
         _elapsedMillis.value = 0L
         _currentLapMillis.value = 0L
         _laps.value = emptyList()
+
+        StopwatchService.stop(getApplication())
     }
 
     fun recordLap() {
         if (!_isRunning.value && _elapsedMillis.value == 0L) return
+
+        triggerLapHaptic()
 
         val lapTime = _currentLapMillis.value
         val totalTime = _elapsedMillis.value
         val nextLapNumber = _laps.value.size + 1
 
         val newRawLaps = _laps.value.toMutableList().apply {
-            // Новые круги добавляем в самое начало списка (индекс 0), чтобы они были сверху
-            add(0, LapRecord(nextLapNumber, lapTime, totalTime))
+            add(0, LapRecord(nextLapNumber, lapTime, totalTime, LapType.NEUTRAL))
         }
 
         _laps.value = recalculateLapTypes(newRawLaps)
 
         val calculatedTotalLaps = _laps.value.sumOf { it.lapTimeMillis }
         _currentLapMillis.value = (_elapsedMillis.value - calculatedTotalLaps).coerceAtLeast(0L)
+
+        if (_isRunning.value) {
+            StopwatchService.updateLaps(
+                context = getApplication(),
+                startTimeMillis = _elapsedMillis.value,
+                lapCount = _laps.value.size
+            )
+        }
+    }
+
+    private fun triggerLapHaptic() {
+        if (!settingsManager.isStopwatchLapVibrate) return
+
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = getApplication<Application>().getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vm.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getApplication<Application>().getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(35)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun recalculateLapTypes(rawLaps: List<LapRecord>): List<LapRecord> {

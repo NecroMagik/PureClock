@@ -97,18 +97,18 @@ fun TimerScreen(
     if (showBottomSheet) {
         ModalBottomSheet(
             onDismissRequest = { showBottomSheet = false },
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 12.dp)
-                    .width(42.dp)
-                    .height(4.dp)
-                    .clip(CircleShape)
-                    .background(Color.Gray.copy(alpha = 0.35f))
-            )
-        }
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 12.dp)
+                        .width(42.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(Color.Gray.copy(alpha = 0.35f))
+                )
+            }
         ) {
             NewTimerSetupSheet(
                 accentColor = accentColor,
@@ -139,8 +139,8 @@ fun TimerScreen(
 
     AnimatedContent(
         targetState = timersList.isEmpty(),
-    transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(300)) },
-    label = "TimerEmptyStateTransition"
+        transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(300)) },
+        label = "TimerEmptyStateTransition"
     ) { isEmpty ->
         if (isEmpty) {
             EmptyTimerState(onAddTimerClick = { showBottomSheet = true })
@@ -148,104 +148,110 @@ fun TimerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-            .padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                        .padding(top = 8.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                Text(
-                    text = "АКТИВНЫЕ ТАЙМЕРЫ (${timersList.size})",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray
-                )
+                    Text(
+                        text = "АКТИВНЫЕ ТАЙМЕРЫ (${timersList.size})",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray
+                    )
 
-                IconButton(
-                    onClick = { timerViewModel.toggleViewMode() },
-                modifier = Modifier.bounceClick()
-                ) {
-                Icon(
-                    imageVector = if (viewMode == TimerViewMode.CAROUSEL) Icons.Default.GridView else Icons.Default.ViewDay,
-                contentDescription = "Режим отображения",
-                tint = accentColor
-                )
-            }
-            }
+                    IconButton(
+                        onClick = { timerViewModel.toggleViewMode() },
+                        modifier = Modifier.bounceClick()
+                    ) {
+                        Icon(
+                            imageVector = if (viewMode == TimerViewMode.CAROUSEL) Icons.Default.GridView else Icons.Default.ViewDay,
+                            contentDescription = "Режим отображения",
+                            tint = accentColor
+                        )
+                    }
+                }
 
                 AnimatedContent(
                     targetState = viewMode == TimerViewMode.CAROUSEL,
-                transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
-                label = "TimerViewModeTransition"
+                    transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
+                    label = "TimerViewModeTransition"
                 ) { isTileView ->
-                if (isTileView) {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                    .weight(1f),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
-                    ) {
-                        itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
-                            var isVisible by remember { mutableStateOf(true) }
+                    if (isTileView) {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+                        ) {
+                            itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
+                                var isVisible by remember { mutableStateOf(true) }
 
-                            AnimatedVisibility(
-                                visible = isVisible,
-                            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f)
-                            ) {
-                                Box(modifier = Modifier.staggeredEntrance(index = index)) {
-                                    TimerTileCard(
-                                        item = item,
-                                    accentColor = accentColor,
-                                    themeConfig = themeConfig,
-                                    onToggle = { timerViewModel.toggleSingleTimer(item.id) },
-                                    onReset = { timerViewModel.resetSingleTimer(item.id) },
-                                    onDelete = {
-                                        isVisible = false
-                                        timerViewModel.deleteTimer(item.id)
+                                AnimatedVisibility(
+                                    visible = isVisible,
+                                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f)
+                                ) {
+                                    Box(modifier = Modifier.staggeredEntrance(index = index)) {
+                                        TimerTileCard(
+                                            item = item,
+                                            accentColor = accentColor,
+                                            themeConfig = themeConfig,
+                                            onToggle = { timerViewModel.toggleSingleTimer(item.id) },
+                                            onReset = { timerViewModel.resetSingleTimer(item.id) },
+                                            onDelete = {
+                                                isVisible = false
+                                                timerViewModel.deleteTimer(item.id)
+                                            },
+                                            onAddMinute = { id ->
+                                                timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
+                                            }
+                                        )
                                     }
-                                    )
                                 }
                             }
                         }
-                    }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                    .weight(1f),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
-                    ) {
-                        itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
-                            var isVisible by remember { mutableStateOf(true) }
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+                        ) {
+                            itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
+                                var isVisible by remember { mutableStateOf(true) }
 
-                            AnimatedVisibility(
-                                visible = isVisible,
-                            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200))
-                            ) {
-                                Box(modifier = Modifier.staggeredEntrance(index = index)) {
-                                    TimerGridItemCard(
-                                        item = item,
-                                    accentColor = accentColor,
-                                    themeConfig = themeConfig,
-                                    onToggle = { timerViewModel.toggleSingleTimer(item.id) },
-                                    onReset = { timerViewModel.resetSingleTimer(item.id) },
-                                    onDelete = {
-                                        isVisible = false
-                                        timerViewModel.deleteTimer(item.id)
+                                AnimatedVisibility(
+                                    visible = isVisible,
+                                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200))
+                                ) {
+                                    Box(modifier = Modifier.staggeredEntrance(index = index)) {
+                                        TimerGridItemCard(
+                                            item = item,
+                                            accentColor = accentColor,
+                                            themeConfig = themeConfig,
+                                            onToggle = { timerViewModel.toggleSingleTimer(item.id) },
+                                            onReset = { timerViewModel.resetSingleTimer(item.id) },
+                                            onDelete = {
+                                                isVisible = false
+                                                timerViewModel.deleteTimer(item.id)
+                                            },
+                                            onAddMinute = { id ->
+                                                timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
+                                            }
+                                        )
                                     }
-                                    )
                                 }
                             }
                         }
                     }
                 }
-            }
             }
         }
     }
@@ -277,217 +283,212 @@ private fun NewTimerSetupSheet(
         val gray = Color(0xFF888E96)
         Color(
             red = (accentColor.red * 0.45f + gray.red * 0.55f),
-        green = (accentColor.green * 0.45f + gray.green * 0.55f),
-        blue = (accentColor.blue * 0.45f + gray.blue * 0.55f),
-        alpha = 1f
+            green = (accentColor.green * 0.45f + gray.green * 0.55f),
+            blue = (accentColor.blue * 0.45f + gray.blue * 0.55f),
+            alpha = 1f
         )
     }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-    .padding(horizontal = 20.dp, vertical = 6.dp)
-    .navigationBarsPadding(),
-    horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .navigationBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Быстрые прибавки
         Row(
             modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-        val increments = listOf(1 to "+1 мин", 5 to "+5 мин", 15 to "+15 мин")
-        increments.forEach { (minsToAdd, title) ->
-            OutlinedButton(
+            val increments = listOf(1 to "+1 мин", 5 to "+5 мин", 15 to "+15 мин")
+            increments.forEach { (minsToAdd, title) ->
+                OutlinedButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val totalMins = (hours * 60) + minutes + minsToAdd
+                        hours = (totalMins / 60).coerceAtMost(23)
+                        minutes = (totalMins % 60)
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .bounceClick(),
+                    contentPadding = PaddingValues(vertical = 6.dp)
+                ) {
+                    Text(title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+
+            IconButton(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val totalMins = (hours * 60) + minutes + minsToAdd
-                    hours = (totalMins / 60).coerceAtMost(23)
-                    minutes = (totalMins % 60)
+                    hours = 0
+                    minutes = 0
+                    seconds = 0
                 },
-                shape = RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .weight(1f)
-            .bounceClick(),
-            contentPadding = PaddingValues(vertical = 6.dp)
+                modifier = Modifier
+                    .size(40.dp)
+                    .bounceClick()
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
-            Text(title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Icon(Icons.Default.RestartAlt, contentDescription = "Сбросить", tint = Color.Gray, modifier = Modifier.size(20.dp))
+            }
         }
-        }
-
-        IconButton(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                hours = 0
-                minutes = 0
-                seconds = 0
-            },
-            modifier = Modifier
-                .size(40.dp)
-        .bounceClick()
-        .clip(CircleShape)
-        .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-        Icon(Icons.Default.RestartAlt, contentDescription = "Сбросить", tint = Color.Gray, modifier = Modifier.size(20.dp))
-    }
-    }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Пресеты времени
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth()
         ) {
-        items(QuickTimerPresets) { (presetMin, title) ->
-            val isSelected = (hours == (presetMin / 60).toInt()) && (minutes == (presetMin % 60).toInt()) && (seconds == 0)
+            items(QuickTimerPresets) { (presetMin, title) ->
+                val isSelected = (hours == (presetMin / 60).toInt()) && (minutes == (presetMin % 60).toInt()) && (seconds == 0)
 
-            Box(
-                modifier = Modifier
-                    .bounceClick()
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isSelected) accentColor else MaterialTheme.colorScheme.surfaceVariant)
-            .border(
-            1.dp,
-            if (isSelected) accentColor else accentColor.copy(alpha = 0.15f),
-            RoundedCornerShape(14.dp)
-            )
-            .clickable {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            hours = (presetMin / 60).toInt()
-            minutes = (presetMin % 60).toInt()
-            seconds = 0
+                Box(
+                    modifier = Modifier
+                        .bounceClick()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isSelected) accentColor else MaterialTheme.colorScheme.surfaceVariant)
+                        .border(
+                            1.dp,
+                            if (isSelected) accentColor else accentColor.copy(alpha = 0.15f),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            hours = (presetMin / 60).toInt()
+                            minutes = (presetMin % 60).toInt()
+                            seconds = 0
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
         }
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            ) {
-            Text(
-                text = title,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurface
-            )
-        }
-        }
-    }
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Увеличенные карточки ввода
         Row(
             modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-        InteractiveDigitPicker(
-            unitTitle = "ЧАС",
-        value = hours,
-        range = 0..23,
-        isFocused = activeEditingField == 0,
-        accentColor = accentColor,
-        onFocusGained = { activeEditingField = 0 },
-        onFocusLost = { if (activeEditingField == 0) activeEditingField = -1 },
-        onValueChange = { hours = it }
-        )
+            InteractiveDigitPicker(
+                unitTitle = "ЧАС",
+                value = hours,
+                range = 0..23,
+                isFocused = activeEditingField == 0,
+                accentColor = accentColor,
+                onFocusGained = { activeEditingField = 0 },
+                onFocusLost = { if (activeEditingField == 0) activeEditingField = -1 },
+                onValueChange = { hours = it }
+            )
 
-        Text(":", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = accentColor.copy(alpha = 0.5f))
+            Text(":", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = accentColor.copy(alpha = 0.5f))
 
-        InteractiveDigitPicker(
-            unitTitle = "МИН",
-        value = minutes,
-        range = 0..59,
-        isFocused = activeEditingField == 1,
-        accentColor = accentColor,
-        onFocusGained = { activeEditingField = 1 },
-        onFocusLost = { if (activeEditingField == 1) activeEditingField = -1 },
-        onValueChange = { minutes = it }
-        )
+            InteractiveDigitPicker(
+                unitTitle = "МИН",
+                value = minutes,
+                range = 0..59,
+                isFocused = activeEditingField == 1,
+                accentColor = accentColor,
+                onFocusGained = { activeEditingField = 1 },
+                onFocusLost = { if (activeEditingField == 1) activeEditingField = -1 },
+                onValueChange = { minutes = it }
+            )
 
-        Text(":", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = accentColor.copy(alpha = 0.5f))
+            Text(":", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = accentColor.copy(alpha = 0.5f))
 
-        InteractiveDigitPicker(
-            unitTitle = "СЕК",
-        value = seconds,
-        range = 0..59,
-        isFocused = activeEditingField == 2,
-        accentColor = accentColor,
-        onFocusGained = { activeEditingField = 2 },
-        onFocusLost = { if (activeEditingField == 2) activeEditingField = -1 },
-        onValueChange = { seconds = it }
-        )
-    }
+            InteractiveDigitPicker(
+                unitTitle = "СЕК",
+                value = seconds,
+                range = 0..59,
+                isFocused = activeEditingField == 2,
+                accentColor = accentColor,
+                onFocusGained = { activeEditingField = 2 },
+                onFocusLost = { if (activeEditingField == 2) activeEditingField = -1 },
+                onValueChange = { seconds = it }
+            )
+        }
 
         Spacer(modifier = Modifier.height(18.dp))
 
         OutlinedTextField(
             value = labelText,
-        onValueChange = { labelText = it },
-        placeholder = { Text("Название (например: Паста, Чай, Тренировка)") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+            onValueChange = { labelText = it },
+            placeholder = { Text("Название (например: Паста, Чай, Тренировка)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
         )
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // 3 Кнопки действий
         Row(
             modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-        OutlinedButton(
-            onClick = onCancel,
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = cancelColor),
-        border = BorderStroke(1.dp, cancelColor.copy(alpha = 0.6f)),
-        modifier = Modifier
-            .weight(1f)
-        .height(52.dp)
-        .bounceClick(),
-        shape = RoundedCornerShape(16.dp)
-        ) {
-        Text("Отмена", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-    }
+            OutlinedButton(
+                onClick = onCancel,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = cancelColor),
+                border = BorderStroke(1.dp, cancelColor.copy(alpha = 0.6f)),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp)
+                    .bounceClick(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Отмена", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
 
-        Button(
-            onClick = { onAdd(hours, minutes, seconds, labelText) },
-        enabled = totalSeconds > 0,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = addColor,
-        contentColor = Color.White,
-        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        modifier = Modifier
-            .weight(1.1f)
-        .height(52.dp)
-        .bounceClick(),
-        shape = RoundedCornerShape(16.dp)
-        ) {
-        Text("Добавить", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-    }
+            Button(
+                onClick = { onAdd(hours, minutes, seconds, labelText) },
+                enabled = totalSeconds > 0,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = addColor,
+                    contentColor = Color.White,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier
+                    .weight(1.1f)
+                    .height(52.dp)
+                    .bounceClick(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Добавить", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
 
-        Button(
-            onClick = { onStart(hours, minutes, seconds, labelText) },
-        enabled = totalSeconds > 0,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = accentColor,
-        contentColor = Color.Black,
-        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        modifier = Modifier
-            .weight(1.2f)
-        .height(52.dp)
-        .bounceClick(),
-        shape = RoundedCornerShape(16.dp)
-        ) {
-        Text("Запустить", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-    }
-    }
+            Button(
+                onClick = { onStart(hours, minutes, seconds, labelText) },
+                enabled = totalSeconds > 0,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = accentColor,
+                    contentColor = Color.Black,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier
+                    .weight(1.2f)
+                    .height(52.dp)
+                    .bounceClick(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Запустить", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
-// УВЕЛИЧЕННЫЙ ИНТЕРАКТИВНЫЙ БАРАБАН
 @Composable
 private fun InteractiveDigitPicker(
     unitTitle: String,
@@ -506,30 +507,30 @@ private fun InteractiveDigitPicker(
 
     val animatedDigitColor by animateColorAsState(
         targetValue = if (isFocused) accentColor else MaterialTheme.colorScheme.onSurface,
-    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-    label = "DigitColorTransition"
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "DigitColorTransition"
     )
 
     val animatedDigitScale by animateFloatAsState(
         targetValue = if (isFocused) 1.15f else 1.0f,
-    animationSpec = spring(
-        dampingRatio = Spring.DampingRatioMediumBouncy,
-    stiffness = Spring.StiffnessMediumLow
-    ),
-    label = "DigitScaleTransition"
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "DigitScaleTransition"
     )
 
     val animatedBorderColor by animateColorAsState(
         targetValue = if (isFocused) accentColor else Color.White.copy(alpha = 0.08f),
-    animationSpec = tween(250),
-    label = "CardBorderColor"
+        animationSpec = tween(250),
+        label = "CardBorderColor"
     )
 
     LaunchedEffect(value) {
         if (!isFocused) {
             textInput = TextFieldValue(
                 text = String.format(Locale.ROOT, "%02d", value),
-            selection = TextRange(2)
+                selection = TextRange(2)
             )
         }
     }
@@ -697,7 +698,6 @@ private fun InteractiveDigitPicker(
     }
 }
 
-// УЛУЧШЕННАЯ КРУПНАЯ 3D-КАРТОЧКА
 @Composable
 private fun TimerTileCard(
     item: TimerItem,
@@ -705,7 +705,8 @@ private fun TimerTileCard(
     themeConfig: com.necromagik.pureclock.ui.theme.PureClockThemeConfig,
     onToggle: () -> Unit,
     onReset: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onAddMinute: (String) -> Unit
 ) {
     val isRunning = item.state == TimerState.RUNNING
     val isCompleted = item.state == TimerState.COMPLETED
@@ -715,7 +716,6 @@ private fun TimerTileCard(
         else -> Color.Gray.copy(alpha = 0.45f)
     }
 
-    // 60-FPS непрерывная плавная интерполяция шкалы отсчёта
     val targetProgress = remember(item.remainingMillis, item.initialTimeSeconds) {
         val totalMs = item.initialTimeSeconds * 1000f
         if (totalMs <= 0f) 0f else (item.remainingMillis.toFloat() / totalMs).coerceIn(0f, 1f)
@@ -738,16 +738,16 @@ private fun TimerTileCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-    .pure3DEffect(
-        shape = RoundedCornerShape(30.dp),
-        accentColor = if (isRunning) accentColor else if (isCompleted) Color(0xFFFFB74D) else Color.DarkGray,
-        depthDp = themeConfig.depthIntensityDp + if (isRunning) 2.dp else 0.dp,
-        is3dEnabled = themeConfig.is3dEnabled,
-    isGlowEnabled = isRunning && themeConfig.isGlowEnabled,
-    surfaceColor = MaterialTheme.colorScheme.surface
-    )
-    .padding(20.dp),
-    contentAlignment = Alignment.Center
+            .pure3DEffect(
+                shape = RoundedCornerShape(30.dp),
+                accentColor = if (isRunning) accentColor else if (isCompleted) Color(0xFFFFB74D) else Color.DarkGray,
+                depthDp = themeConfig.depthIntensityDp + if (isRunning) 2.dp else 0.dp,
+                is3dEnabled = themeConfig.is3dEnabled,
+                isGlowEnabled = isRunning && themeConfig.isGlowEnabled,
+                surfaceColor = MaterialTheme.colorScheme.surface
+            )
+            .padding(20.dp),
+        contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
@@ -761,26 +761,24 @@ private fun TimerTileCard(
                     val diameter = size.minDimension - strokeWidth
                     val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
 
-                    // Фоновая направляющая дуга
                     drawArc(
                         color = activeColor.copy(alpha = 0.12f),
                         startAngle = 0f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = Size(diameter, diameter),
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = Size(diameter, diameter),
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                     )
 
-                    // Анимированная дуга оставшегося времени
                     drawArc(
                         color = activeColor,
-                    startAngle = -90f,
-                    sweepAngle = 360f * animatedProgress,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = Size(diameter, diameter),
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                        startAngle = -90f,
+                        sweepAngle = 360f * animatedProgress,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = Size(diameter, diameter),
+                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                     )
                 }
 
@@ -803,9 +801,9 @@ private fun TimerTileCard(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Панель управления с большими кнопками (хитбоксы 48-56 dp)
+            // Панель управления с кнопкой {+1} минута
             Row(
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Кнопка: Сброс
@@ -825,22 +823,39 @@ private fun TimerTileCard(
                     )
                 }
 
-                // Кнопка: Старт / Пауза (главная увеличенная кнопка 58 dp)
+                // Кнопка: Добавить 1 минуту (+1)
+                IconButton(
+                    onClick = { onAddMinute(item.id) },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                        .bounceClick()
+                ) {
+                    Text(
+                        text = "+1",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+
+                // Кнопка: Старт / Пауза
                 FloatingActionButton(
                     onClick = onToggle,
-                containerColor = if (isRunning) accentColor else MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = if (isRunning) Color.Black else MaterialTheme.colorScheme.onSurface,
-                shape = CircleShape,
-                modifier = Modifier
-                    .size(58.dp)
-                    .bounceClick()
+                    containerColor = if (isRunning) accentColor else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isRunning) Color.Black else MaterialTheme.colorScheme.onSurface,
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(58.dp)
+                        .bounceClick()
                 ) {
-                Icon(
-                    imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = "Старт/Пауза",
-                modifier = Modifier.size(28.dp)
-                )
-            }
+                    Icon(
+                        imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = "Старт/Пауза",
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
 
                 // Кнопка: Удалить
                 IconButton(
@@ -863,7 +878,6 @@ private fun TimerTileCard(
     }
 }
 
-// УЛУЧШЕННАЯ СПИСОЧНАЯ КАРТОЧКА (ЭРГОНОМИЧНЫЕ КНОПКИ БЕЗ ПРОМАХОВ)
 @Composable
 private fun TimerGridItemCard(
     item: TimerItem,
@@ -871,12 +885,12 @@ private fun TimerGridItemCard(
     themeConfig: com.necromagik.pureclock.ui.theme.PureClockThemeConfig,
     onToggle: () -> Unit,
     onReset: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onAddMinute: (String) -> Unit
 ) {
     val isRunning = item.state == TimerState.RUNNING
     val isCompleted = item.state == TimerState.COMPLETED
-    val titleColor =
-        if (isRunning) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+    val titleColor = if (isRunning) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
 
     val formattedTime = remember(item.remainingSeconds) {
         val minutes = (item.remainingSeconds % 3600) / 60
@@ -902,7 +916,6 @@ private fun TimerGridItemCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Информация о таймере
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.label,
@@ -925,25 +938,34 @@ private fun TimerGridItemCard(
                 )
             }
 
-            // Цифровой счетчик
             Text(
                 text = formattedTime,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 12.dp)
+                modifier = Modifier.padding(horizontal = 8.dp)
             )
 
-            // Панель действий: кнопки разнесены и увеличены до 46 dp для уверенного тапа
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Кнопка Сброс (46 dp)
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .clickable { onAddMinute(item.id) }
+                        .bounceClick(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "+1", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .clickable { onReset() }
                         .bounceClick(),
@@ -953,15 +975,14 @@ private fun TimerGridItemCard(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Сброс",
                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                // Кнопка Старт/Пауза (46 dp, акцентная)
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(if (isRunning) accentColor else MaterialTheme.colorScheme.surfaceVariant)
                         .clickable { onToggle() }
                         .bounceClick(),
@@ -971,15 +992,14 @@ private fun TimerGridItemCard(
                         imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = "Старт/Пауза",
                         tint = if (isRunning) Color.Black else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                // Кнопка Удалить (46 dp, красный фон с защитным отступом)
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
                         .clickable { onDelete() }
                         .bounceClick(),
@@ -989,7 +1009,7 @@ private fun TimerGridItemCard(
                         imageVector = Icons.Default.DeleteOutline,
                         contentDescription = "Удалить",
                         tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -997,58 +1017,55 @@ private fun TimerGridItemCard(
     }
 }
 
-    // ============================================================================
-// КОМПОНЕНТ БАРАБАННОГО НАКАТА ЦИФР (СВЕРХУ-ВНИЗ)
-// ============================================================================
-    @Composable
-    private fun RollingTimeText(
-        formattedTime: String,
-        fontSize: androidx.compose.ui.unit.TextUnit,
-        fontWeight: FontWeight = FontWeight.Bold,
-        color: Color = MaterialTheme.colorScheme.onSurface,
-        modifier: Modifier = Modifier
+@Composable
+private fun RollingTimeText(
+    formattedTime: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fontWeight: FontWeight = FontWeight.Bold,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
-        Row(
-            modifier = modifier,
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            formattedTime.forEachIndexed { index, char ->
-                if (char == ':') {
-                    Text(
-                        text = ":",
-                        fontSize = fontSize,
-                        fontWeight = fontWeight,
-                        color = color.copy(alpha = 0.6f)
-                    )
-                } else {
-                    AnimatedContent(
-                        targetState = char,
-                        transitionSpec = {
-                            (slideInVertically(
+        formattedTime.forEachIndexed { index, char ->
+            if (char == ':') {
+                Text(
+                    text = ":",
+                    fontSize = fontSize,
+                    fontWeight = fontWeight,
+                    color = color.copy(alpha = 0.6f)
+                )
+            } else {
+                AnimatedContent(
+                    targetState = char,
+                    transitionSpec = {
+                        (slideInVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) { -it } + fadeIn()).togetherWith(
+                            slideOutVertically(
                                 animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
                                     stiffness = Spring.StiffnessMediumLow
                                 )
-                            ) { -it } + fadeIn()).togetherWith(
-                                slideOutVertically(
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                ) { it } + fadeOut()
-                            )
-                        },
-                        label = "DigitRoll_$index"
-                    ) { targetChar ->
-                        Text(
-                            text = targetChar.toString(),
-                            fontSize = fontSize,
-                            fontWeight = fontWeight,
-                            color = color
+                            ) { it } + fadeOut()
                         )
-                    }
+                    },
+                    label = "DigitRoll_$index"
+                ) { targetChar ->
+                    Text(
+                        text = targetChar.toString(),
+                        fontSize = fontSize,
+                        fontWeight = fontWeight,
+                        color = color
+                    )
                 }
             }
         }
     }
+}

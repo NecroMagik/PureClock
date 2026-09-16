@@ -26,9 +26,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -68,6 +77,43 @@ enum class ScreenRoute {
     THEME_ENGINE
 }
 
+/**
+ * Островная форма док-панели с вырезом под выступающую центральную кнопку
+ */
+private class NotchedDockShape(
+    private val cornerRadius: Dp = 32.dp,
+    private val notchRadius: Dp = 34.dp
+) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val cornerPx = with(density) { cornerRadius.toPx() }
+        val notchRadiusPx = with(density) { notchRadius.toPx() }
+
+        val basePath = Path().apply {
+            addRoundRect(
+                androidx.compose.ui.geometry.RoundRect(
+                    rect = Rect(0f, 0f, size.width, size.height),
+                    topLeft = androidx.compose.ui.geometry.CornerRadius(cornerPx),
+                    topRight = androidx.compose.ui.geometry.CornerRadius(cornerPx),
+                    bottomLeft = androidx.compose.ui.geometry.CornerRadius(cornerPx),
+                    bottomRight = androidx.compose.ui.geometry.CornerRadius(cornerPx)
+                )
+            )
+        }
+
+        val cutoutPath = Path().apply {
+            addOval(
+                Rect(
+                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f),
+                    radius = notchRadiusPx
+                )
+            )
+        }
+
+        val resultPath = Path.combine(PathOperation.Difference, basePath, cutoutPath)
+        return Outline.Generic(resultPath)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(viewModel: AlarmViewModel) {
@@ -93,7 +139,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
     val alarms by viewModel.alarms.collectAsState()
 
-    // Состояние скрытия баббла пользователем на текущей сессии
     var isUpdateBubbleDismissed by remember { mutableStateOf(false) }
 
     BackHandler(enabled = currentRoute != ScreenRoute.MAIN || isAddingAlarm || editingAlarm != null) {
@@ -207,7 +252,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                         val isBetaUpdateAvailable by settingsManager.isBetaUpdateAvailableFlow.collectAsState()
                         val latestBetaRelease by settingsManager.latestBetaReleaseFlow.collectAsState()
 
-                        // Проверка бета-релизов в ветке tree/beta при включённом тумблере
                         LaunchedEffect(Unit) {
                             if (settingsManager.allowBetaUpdates) {
                                 val release = SettingsManager.UpdateChecker.checkForBetaUpdates("1.29")
@@ -242,16 +286,21 @@ fun MainScreen(viewModel: AlarmViewModel) {
                             },
                             bottomBar = {
                                 Box(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .navigationBarsPadding()
+                                        .padding(start = 8.dp, end = 8.dp, bottom = 20.dp),
                                     contentAlignment = Alignment.BottomCenter
                                 ) {
-                                    val barShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                                    val dockShape = remember { NotchedDockShape(cornerRadius = 32.dp, notchRadius = 34.dp) }
 
+                                    // Парящая широкая док-панель
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .height(72.dp)
                                             .pure3DEffect(
-                                                shape = barShape,
+                                                shape = dockShape,
                                                 accentColor = themeConfig.accentColor,
                                                 surfaceColor = MaterialTheme.colorScheme.surface,
                                                 depthDp = themeConfig.depthIntensityDp,
@@ -261,9 +310,8 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                     ) {
                                         Row(
                                             modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(84.dp)
-                                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                                                .fillMaxSize()
+                                                .padding(horizontal = 10.dp),
                                             horizontalArrangement = Arrangement.SpaceAround,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -280,7 +328,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                 modifier = Modifier.weight(1f)
                                             )
 
-                                            Spacer(modifier = Modifier.width(80.dp))
+                                            Spacer(modifier = Modifier.width(56.dp))
 
                                             NavTabItem3D(
                                                 tab = ClockTab.TIMER,
@@ -297,24 +345,17 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         }
                                     }
 
-                                    Box(
-                                        modifier = Modifier
-                                            .offset(y = (-40).dp)
-                                            .size(87.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.background)
-                                    )
-
                                     val currentTab = ClockTab.entries[pagerState.currentPage]
                                     val isStopwatchTab = currentTab == ClockTab.STOPWATCH
 
+                                    // Кнопка секундомера "Сброс"
                                     AnimatedVisibility(
                                         visible = isStopwatchTab && (stopwatchElapsed > 0 && !isStopwatchRunning),
                                         enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
                                                 slideInHorizontally(initialOffsetX = { it }) +
                                                 slideInVertically(initialOffsetY = { it }),
                                         exit = scaleOut() + slideOutHorizontally(targetOffsetX = { it }) + slideOutVertically(targetOffsetY = { it }),
-                                        modifier = Modifier.offset(x = (-52).dp, y = (-98).dp)
+                                        modifier = Modifier.offset(x = (-84).dp, y = (-78).dp)
                                     ) {
                                         SmallFloatingActionButton(
                                             onClick = { stopwatchViewModel.reset() },
@@ -322,20 +363,25 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             contentColor = Color.Gray,
                                             shape = CircleShape,
                                             modifier = Modifier
-                                                .size(48.dp)
+                                                .size(54.dp)
                                                 .bounceClick()
                                         ) {
-                                            Icon(Icons.Default.Refresh, contentDescription = "Сброс")
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Сброс",
+                                                modifier = Modifier.size(26.dp)
+                                            )
                                         }
                                     }
 
+                                    // Кнопка секундомера "Круг"
                                     AnimatedVisibility(
                                         visible = isStopwatchTab && isStopwatchRunning,
                                         enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
                                                 slideInHorizontally(initialOffsetX = { -it }) +
                                                 slideInVertically(initialOffsetY = { it }),
                                         exit = scaleOut() + slideOutHorizontally(targetOffsetX = { -it }) + slideOutVertically(targetOffsetY = { it }),
-                                        modifier = Modifier.offset(x = 52.dp, y = (-98).dp)
+                                        modifier = Modifier.offset(x = 84.dp, y = (-78).dp)
                                     ) {
                                         SmallFloatingActionButton(
                                             onClick = { stopwatchViewModel.recordLap() },
@@ -343,10 +389,14 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             contentColor = themeConfig.accentColor,
                                             shape = CircleShape,
                                             modifier = Modifier
-                                                .size(48.dp)
+                                                .size(54.dp)
                                                 .bounceClick()
                                         ) {
-                                            Icon(Icons.Default.Flag, contentDescription = "Отсечка")
+                                            Icon(
+                                                imageVector = Icons.Default.Flag,
+                                                contentDescription = "Отсечка",
+                                                modifier = Modifier.size(26.dp)
+                                            )
                                         }
                                     }
 
@@ -357,6 +407,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         ClockTab.STOPWATCH -> if (isStopwatchRunning) Icons.Default.Pause else Icons.Default.PlayArrow
                                     }
 
+                                    // Компактная центральная кнопка с заметным выступом вверх
                                     FloatingActionButton(
                                         onClick = {
                                             when (currentTab) {
@@ -370,8 +421,8 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         contentColor = MaterialTheme.colorScheme.onPrimary,
                                         shape = CircleShape,
                                         modifier = Modifier
-                                            .offset(y = (-46).dp)
-                                            .size(75.dp)
+                                            .offset(y = (-40).dp)
+                                            .size(58.dp)
                                             .bounceClick()
                                     ) {
                                         AnimatedContent(
@@ -382,7 +433,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             Icon(
                                                 imageVector = icon,
                                                 contentDescription = "Действие",
-                                                modifier = Modifier.size(38.dp)
+                                                modifier = Modifier.size(26.dp)
                                             )
                                         }
                                     }
@@ -431,14 +482,14 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                     }
                                 }
 
-                                // НИЖНЕЕ БАББЛ-УВЕДОМЛЕНИЕ О ВЫХОДЕ БЕТЫ
+                                // Баббл обновления
                                 AnimatedVisibility(
                                     visible = isBetaUpdateAvailable && !isUpdateBubbleDismissed,
                                     enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                                     exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
-                                        .padding(bottom = 100.dp, start = 20.dp, end = 20.dp)
+                                        .padding(bottom = 120.dp, start = 20.dp, end = 20.dp)
                                 ) {
                                     val bubbleShape = RoundedCornerShape(20.dp)
                                     Box(
@@ -483,9 +534,9 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                 Column {
                                                     Text(
                                                         text = "Вышла бета ${latestBetaRelease?.tagName ?: ""}",
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp
                                                     )
                                                     Text(
                                                         text = "Нажмите для перехода в настройки",
@@ -534,13 +585,16 @@ private fun NavTabItem3D(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = modifier.fillMaxHeight()
+        modifier = modifier
+            .fillMaxHeight()
+            .clickable { onClick() }
+            .bounceClick()
     ) {
         Pure3DIcon(
             tab = tab.tabType,
             isSelected = isSelected,
             onClick = onClick,
-            size = 26.dp,
+            size = 24.dp,
             activeColor = accentColor,
             inactiveColor = defaultColor
         )
@@ -549,9 +603,11 @@ private fun NavTabItem3D(
 
         Text(
             text = tab.title,
-            fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isSelected) accentColor else defaultColor
+            fontSize = 10.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) accentColor else defaultColor,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }
