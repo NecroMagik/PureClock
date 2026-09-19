@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.AlarmCalendarView
 import com.necromagik.pureclock.ui.components.PureSwitch
@@ -89,6 +90,9 @@ fun AddEditAlarmScreen(
     val themeConfig = LocalPureClockConfig.current
     val accentColor = themeConfig.accentColor
     val context = LocalContext.current
+    val settingsManager = remember { SettingsManager.getInstance(context) }
+    val alarmPickerStyle by settingsManager.alarmPickerStyleFlow.collectAsState()
+
     val cardShape = remember(themeConfig.cardCornerRadius) {
         RoundedCornerShape(themeConfig.cardCornerRadius)
     }
@@ -245,6 +249,7 @@ fun AddEditAlarmScreen(
             TwentyFourHourDial(
                 selectedHour = selectedHour,
                 selectedMinute = selectedMinute,
+                pickerStyle = alarmPickerStyle,
                 onHourSelected = { selectedHour = it },
                 onMinuteSelected = { selectedMinute = it }
             )

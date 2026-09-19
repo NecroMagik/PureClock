@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.install.model.AppUpdateType
+import com.necromagik.pureclock.data.AlarmPickerStyle
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.ClockStylePickerDialog
@@ -47,7 +48,7 @@ import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
 
-private const val APP_VERSION = "1.33"
+private const val APP_VERSION = "1.32c"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,6 +124,9 @@ private fun SettingsMainContent(
         }
     }
 
+    var showAlarmPickerStyleDialog by remember { mutableStateOf(false) }
+    val alarmPickerStyle by settingsManager.alarmPickerStyleFlow.collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -183,6 +187,15 @@ private fun SettingsMainContent(
             }
 
             item { SettingsHeader("Будильник") }
+            item {
+                SettingsClickCard(
+                    icon = Icons.Default.AccessTime,
+                    title = "Стиль выбора времени",
+                    subtitle = "${alarmPickerStyle.title} • ${alarmPickerStyle.description}",
+                    onClick = { showAlarmPickerStyleDialog = true },
+                    shape = cardShape
+                )
+            }
             item {
                 SettingsSwitchCard(
                     icon = Icons.AutoMirrored.Filled.VolumeUp,
@@ -274,7 +287,7 @@ private fun SettingsMainContent(
                 SettingsSwitchCard(
                     icon = Icons.Default.HourglassBottom,
                     title = "Вибрация таймера",
-                    subtitle = "Вибросигнал по окончании отсчета",
+                    subtitle = "Вибрация по окончании отсчета",
                     isChecked = isTimerVibrate,
                     onCheckedChange = { settingsManager.isTimerVibrate = it },
                     shape = cardShape
@@ -293,7 +306,6 @@ private fun SettingsMainContent(
 
             item { SettingsHeader("О приложении") }
 
-            // 1. Статус источника установки
             item {
                 val isSystemPrebuilt = installSource == SettingsManager.InstallSource.SYSTEM_PREBUILT
                 val isOfficial = installSource.isOfficial
@@ -403,7 +415,6 @@ private fun SettingsMainContent(
                 }
             }
 
-            // 2. Интеграция In-App обновления для Google Play (и заглушка RuStore)
             if (!allowBetaUpdates && installSource.isOfficial) {
                 val isPlay = installSource == SettingsManager.InstallSource.GOOGLE_PLAY ||
                         installSource == SettingsManager.InstallSource.SYSTEM_PREBUILT
@@ -475,7 +486,6 @@ private fun SettingsMainContent(
                 }
             }
 
-            // 3. Переключатель ветки Beta (GitHub tree/beta)
             item {
                 SettingsSwitchCard(
                     icon = Icons.Default.Science,
@@ -494,18 +504,15 @@ private fun SettingsMainContent(
                 )
             }
 
-            // 4. Проверка бета-релизов на GitHub
             if (allowBetaUpdates) {
                 item {
                     SettingsClickCard(
                         icon = Icons.Default.Upgrade,
                         title = if (isBetaUpdateAvailable) "Скачать бета-версию ${latestBetaRelease?.tagName}" else "Проверить бета-обновления",
-                        subtitle = if (isCheckingBetaUpdates) {
-                            "Связь с GitHub tree/beta..."
-                        } else if (isBetaUpdateAvailable) {
-                            "Нажмите для загрузки APK"
-                        } else {
-                            "Текущая сборка: $APP_VERSION"
+                        subtitle = when {
+                            isCheckingBetaUpdates -> "Связь с GitHub tree/beta..."
+                            isBetaUpdateAvailable -> "Нажмите для загрузки APK"
+                            else -> "Текущая сборка: $APP_VERSION"
                         },
                         onClick = {
                             if (isBetaUpdateAvailable && latestBetaRelease != null) {
@@ -531,7 +538,6 @@ private fun SettingsMainContent(
                 }
             }
 
-            // 5. Инфокарточка о PureClock
             item {
                 Box(
                     modifier = Modifier
@@ -786,7 +792,7 @@ private fun SettingsMainContent(
             },
             confirmButton = {
                 TextButton(onClick = { showNoUpdatesToast = false }) {
-                    Text("Понятно", color = themeConfig.accentColor)
+                    Text("Понятнo", color = themeConfig.accentColor)
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -862,6 +868,23 @@ private fun SettingsMainContent(
                 settingsManager.dismissMethod = it
             },
             onDismiss = { showDismissMethodDialog = false }
+        )
+    }
+
+    if (showAlarmPickerStyleDialog) {
+        SingleChoiceDialog(
+            title = "Стиль выбора времени",
+            options = listOf(
+                AlarmPickerStyle.DIAL to "Циферблат (круговой)",
+                AlarmPickerStyle.WHEEL to "Барабанный селектор",
+                AlarmPickerStyle.TIMELINE to "Временная шкала (лента)"
+            ),
+            selectedValue = alarmPickerStyle,
+            onSelect = {
+                showAlarmPickerStyleDialog = false
+                settingsManager.selectedAlarmPickerStyle = it
+            },
+            onDismiss = { showAlarmPickerStyleDialog = false }
         )
     }
 }

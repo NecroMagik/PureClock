@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.apply
 
 enum class AnalogStyle(val title: String, val description: String) {
     OXYGEN("OxygenOS", "NEVER SETTLE"),
@@ -29,6 +30,12 @@ enum class DigitalStyle(val title: String, val description: String) {
     VERTICAL("Stack OS", "Двухэтажный формат: часы над минутами"),
     SECTIONAL("3D LED Segment", "Объемные полигональные физические сегменты"),
     CYBER_MONO("Matrix Console", "Моноширинный киберпанк с рамкой")
+}
+
+enum class AlarmPickerStyle(val title: String, val description: String) {
+    DIAL("Циферблат", "Классический 24-часовой круговой селектор"),
+    WHEEL("Барабанный селектор", "Вертикальные барабаны с инерционной прокруткой"),
+    TIMELINE("Временная шкала", "Две горизонтальные шкалы со скольжением")
 }
 
 data class ThemeState(
@@ -69,6 +76,24 @@ class SettingsManager private constructor(context: Context) {
             }
         }
     }
+
+    private val _alarmPickerStyle = MutableStateFlow(
+        try {
+            AlarmPickerStyle.valueOf(
+                prefs.getString("alarm_time_picker_style", AlarmPickerStyle.DIAL.name) ?: AlarmPickerStyle.DIAL.name
+            )
+        } catch (_: Exception) {
+            AlarmPickerStyle.DIAL
+        }
+    )
+    val alarmPickerStyleFlow: StateFlow<AlarmPickerStyle> = _alarmPickerStyle.asStateFlow()
+
+    var selectedAlarmPickerStyle: AlarmPickerStyle
+        get() = _alarmPickerStyle.value
+        set(value) {
+            _alarmPickerStyle.value = value
+            prefs.edit().putString("alarm_time_picker_style", value.name).apply()
+        }
 
     private val _themeState = MutableStateFlow(
         ThemeState(
