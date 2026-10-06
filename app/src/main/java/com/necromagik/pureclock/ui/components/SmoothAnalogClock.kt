@@ -69,6 +69,7 @@ fun SmoothAnalogClock(
     digitalStyle: DigitalStyle = DigitalStyle.OXYGEN_LARGE,
     clockSize: Dp = 240.dp,
     onShiftHoursChanged: ((Int) -> Unit)? = null,
+    onSecretCodeTriggered: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -169,6 +170,7 @@ fun SmoothAnalogClock(
 // ============================================================================
     var flickerText by remember { mutableStateOf("") }
     var isFlickering by remember { mutableStateOf(true) }
+    var secretStep by remember { mutableIntStateOf(0) }
 
     val flickerAlpha by animateFloatAsState(
         targetValue = if (isFlickering) 0.3f else 1.0f,
@@ -318,6 +320,26 @@ fun SmoothAnalogClock(
                                     if (isTouchValid) {
                                         isDragging = false
                                         isTouchValid = false
+
+                                        when (secretStep) {
+                                            0 -> {
+                                                if (shiftHoursCount == 1) secretStep = 1 // Шаг 1: перевел на +1
+                                                else secretStep = 0
+                                            }
+                                            1 -> {
+                                                if (shiftHoursCount == -5) secretStep = 2 // Шаг 2: перевел на -5
+                                                else secretStep = 0
+                                            }
+                                            2 -> {
+                                                if (shiftHoursCount == 9) { // Шаг 3: перевел на +9 -> Активация!
+                                                    secretStep = 0
+                                                    onSecretCodeTriggered?.invoke()
+                                                } else {
+                                                    secretStep = 0
+                                                }
+                                            }
+                                            else -> secretStep = 0
+                                        }
 
                                         val shortestDelta = getShortestAngleDelta(animHourAngle.value, rawSystemHourAngle)
 

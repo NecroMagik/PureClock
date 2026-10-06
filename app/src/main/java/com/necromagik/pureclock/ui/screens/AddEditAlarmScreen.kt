@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -181,6 +182,14 @@ fun AddEditAlarmScreen(
             }
             ringtoneUriString = uri?.toString()
             ringtoneTitle = uri?.let { RingtoneManager.getRingtone(context, it)?.getTitle(context) } ?: "Без звука"
+        }
+    }
+
+    BackHandler(enabled = showCalendarModal || showLabelDialog) {
+        if (showCalendarModal) {
+            showCalendarModal = false
+        } else if (showLabelDialog) {
+            showLabelDialog = false
         }
     }
 

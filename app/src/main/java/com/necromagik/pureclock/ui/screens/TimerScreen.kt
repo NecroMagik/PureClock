@@ -1,5 +1,6 @@
 package com.necromagik.pureclock.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -87,6 +88,10 @@ fun TimerScreen(
     val timersList by timerViewModel.timersList.collectAsState()
     val viewMode by timerViewModel.viewMode.collectAsState()
     var showBottomSheet by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = showBottomSheet) {
+        showBottomSheet = false
+    }
 
     LaunchedEffect(Unit) {
         onTimerStateChanged(false) {

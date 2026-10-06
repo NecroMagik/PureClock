@@ -3,15 +3,15 @@ package com.necromagik.pureclock.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,8 +21,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.delay
 import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.WorldCity
@@ -31,11 +34,13 @@ import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.SmoothAnalogClock
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
+import com.necromagik.pureclock.ui.screens.DevScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorldClockScreen(
     onOpenSettings: () -> Unit = {},
+    onOpenDevScreen: () -> Unit = {},
     externalShowAddDialog: Boolean = false,
     onDialogDismiss: () -> Unit = {}
 ) {
@@ -77,7 +82,8 @@ fun WorldClockScreen(
                 clockSize = 330.dp,
                 onShiftHoursChanged = { newShift ->
                     currentShiftHours = newShift
-                }
+                },
+                onSecretCodeTriggered = onOpenDevScreen
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -233,7 +239,6 @@ private fun CityClockCard(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    // Увеличенный размер и жирность шрифта времени
                     Text(
                         text = city.getFormattedTime(is24Hour, shiftHours),
                         color = MaterialTheme.colorScheme.onSurface,
@@ -241,7 +246,6 @@ private fun CityClockCard(
                         fontWeight = FontWeight.Black
                     )
 
-                    // Акцентная подпись с количеством добавленных/убранных часов при ручном сдвиге
                     if (shiftHours != 0) {
                         val shiftText = if (shiftHours > 0) "+$shiftHours ч" else "$shiftHours ч"
                         Text(
@@ -287,95 +291,113 @@ private fun AddCityDialog(
     var isLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isEmpty()) {
+            isLoading = false
+            searchResults = repository.searchCities("").filter { !alreadySavedIds.contains(it.id) }
+            return@LaunchedEffect
+        }
+
+        // Задержка 450 мс перед выполнением сетевого запроса
+        delay(450)
         isLoading = true
-        searchResults = repository.searchCities(searchQuery)
-            .filter { !alreadySavedIds.contains(it.id) }
+        searchResults = repository.searchCities(q).filter { !alreadySavedIds.contains(it.id) }
         isLoading = false
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Public, contentDescription = null, tint = themeConfig.accentColor)
-                Spacer(modifier = Modifier.width(10.dp))
-                Text("Добавить город", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-            }
-        },
-        text = {
-            Column(modifier = Modifier.heightIn(max = 380.dp)) {
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .pure3DEffect(
+                    shape = RoundedCornerShape(22.dp),
+                    accentColor = themeConfig.accentColor,
+                    depthDp = themeConfig.depthIntensityDp,
+                    is3dEnabled = themeConfig.is3dEnabled,
+                    isGlowEnabled = themeConfig.isGlowEnabled,
+                    surfaceColor = MaterialTheme.colorScheme.surface
+                )
+                .padding(18.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Только одно поле ввода с подсказкой "Введите город"
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Поиск (Пекин, Мумбаи)...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = 2.dp
-                            )
-                        }
+                    placeholder = {
+                        Text(
+                            text = "Введите город",
+                            color = Color.Gray,
+                            fontSize = 15.sp
+                        )
                     },
-                    shape = RoundedCornerShape(14.dp),
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = themeConfig.accentColor,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                        cursorColor = themeConfig.accentColor
+                    ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(14.dp))
 
-                if (searchResults.isEmpty() && !isLoading) {
-                    Box(
+                if (isLoading) {
+                    LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Города не найдены", color = Color.Gray, fontSize = 13.sp)
-                    }
+                            .padding(top = 8.dp),
+                        color = themeConfig.accentColor,
+                        trackColor = Color.Transparent
+                    )
                 } else {
-                    LazyColumn {
-                        itemsIndexed(searchResults, key = { _, city -> city.id }) { _, city ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .bounceClick { onCitySelected(city.id) }
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = city.cityName,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = city.countryName,
-                                        color = Color.Gray,
-                                        fontSize = 12.sp
-                                    )
-                                }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    itemsIndexed(searchResults, key = { _, city -> city.id }) { _, city ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onCitySelected(city.id) }
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = city.getTimeDifferenceText(0),
-                                    color = themeConfig.accentColor,
-                                    fontSize = 12.sp
+                                    text = city.cityName,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = city.countryName,
+                                    color = Color.Gray,
+                                    fontSize = 13.sp
                                 )
                             }
-                            HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f))
+                            Text(
+                                text = city.getTimeDifferenceText(0),
+                                color = themeConfig.accentColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
+                        HorizontalDivider(
+                            color = Color.White.copy(alpha = 0.08f),
+                            thickness = 1.dp
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.bounceClick()) {
-                Text("Отмена", color = Color.Gray)
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(24.dp)
-    )
+        }
+    }
 }

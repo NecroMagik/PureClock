@@ -1,5 +1,6 @@
 package com.necromagik.pureclock.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -53,6 +54,10 @@ onBackClick: () -> Unit = {}
     var expandedBubble by remember { mutableStateOf<String?>(null) }
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var selectedRatio by remember { mutableStateOf(WidgetPreviewRatio.SIZE_5x2) }
+
+    BackHandler(enabled = expandedBubble != null) {
+        expandedBubble = null
+    }
 
     LaunchedEffect(Unit) {
         while (true) {

@@ -3,6 +3,7 @@ package com.necromagik.pureclock.ui.screens
 import android.Manifest
 import android.content.Context
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -78,6 +79,14 @@ onEditAlarmClick: (AlarmEntity) -> Unit
     var selectedAlarmIds by remember { mutableStateOf(setOf<Long>()) }
     val isSelectionMode = selectedAlarmIds.isNotEmpty()
     var alarmToDisable by remember { mutableStateOf<AlarmEntity?>(null) }
+
+    BackHandler(enabled = isSelectionMode || alarmToDisable != null) {
+        if (alarmToDisable != null) {
+            alarmToDisable = null
+        } else {
+            selectedAlarmIds = emptySet()
+        }
+    }
 
     LaunchedEffect(alarms) {
         selectedAlarmIds = emptySet()

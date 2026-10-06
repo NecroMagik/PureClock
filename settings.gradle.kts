@@ -19,6 +19,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("https://nexus-external.rustore.ru/repository/maven-rustore-exposed")
+        }
     }
 }
 
