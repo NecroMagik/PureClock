@@ -12,8 +12,8 @@ android {
         applicationId = "com.necromagik.pureclock"
         minSdk = 29
         targetSdk = 37
-        versionCode = 134
-        versionName = "v1.34"
+        versionCode = 135
+        versionName = "v1.32d"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -2,11 +2,12 @@ package com.necromagik.pureclock.alarm
 
 import android.app.KeyguardManager
 import android.app.Service
-//import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.VibrationEffect
@@ -61,12 +62,20 @@ class AlarmService : Service() {
         val now = LocalTime.now()
         val timeText = String.format(Locale.ROOT, "%02d:%02d", now.hour, now.minute)
 
-        // 2. Старт единого Foreground Service через NoticeCenter
+        // 2. Старт единого Foreground Service с явным типом SPECIAL_USE
         val noticeCenter = NoticeCenter(this)
         val activeNotification = noticeCenter.buildActiveAlarmNotification(alarmId, label, timeText)
-        startForeground(NOTIFICATION_ID, activeNotification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                activeNotification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, activeNotification)
+        }
 
-        // 3. Воспроизведение звука с использованием .toUri() и ifEmpty
+        // 3. Воспроизведение звука
         try {
             val audioUri = ringtoneUriStr?.ifEmpty { null }?.toUri()
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
@@ -103,7 +112,7 @@ class AlarmService : Service() {
             e.printStackTrace()
         }
 
-        // 4. Вибрация (без версионирования, API >= 29)
+        // 4. Вибрация
         vibrator = getSystemService(Vibrator::class.java)
         vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 500), 0))
 

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -80,6 +81,14 @@ class TimerService : Service() {
         }
     }
 
+    private fun startTimerForeground(id: Int, notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(id, notification)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createAlarmNotificationChannel()
@@ -111,7 +120,7 @@ class TimerService : Service() {
                 handleResumeTimer(timerId)
             }
             else -> {
-                startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+                startTimerForeground(NOTIFICATION_ID, buildLiveTimerNotification())
             }
         }
         return START_STICKY
@@ -134,7 +143,7 @@ class TimerService : Service() {
             )
             prefs.edit().putString("saved_timers_list", gson.toJson(list)).apply()
             TimerReceiver.cancelTimerAlarm(this, item.id)
-            startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+            startTimerForeground(NOTIFICATION_ID, buildLiveTimerNotification())
         }
     }
 
@@ -154,7 +163,7 @@ class TimerService : Service() {
             )
             prefs.edit().putString("saved_timers_list", gson.toJson(list)).apply()
             TimerReceiver.scheduleTimerAlarm(this, item.id, item.label, "${(item.remainingMillis / 60000)} мин", triggerTime)
-            startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+            startTimerForeground(NOTIFICATION_ID, buildLiveTimerNotification())
         }
     }
 
@@ -205,7 +214,7 @@ class TimerService : Service() {
 
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(ALARM_NOTIFICATION_ID)
-        startForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+        startTimerForeground(NOTIFICATION_ID, buildLiveTimerNotification())
     }
 
     private fun buildLiveTimerNotification(): Notification {
@@ -265,7 +274,7 @@ class TimerService : Service() {
             .setAutoCancel(false)
             .build()
 
-        startForeground(ALARM_NOTIFICATION_ID, notification)
+        startTimerForeground(ALARM_NOTIFICATION_ID, notification)
         try {
             startActivity(alertIntent)
         } catch (e: Exception) {

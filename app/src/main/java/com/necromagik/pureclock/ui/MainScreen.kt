@@ -1,7 +1,6 @@
 package com.necromagik.pureclock.ui
 
-import androidx.activity.BackEventCompat
-import androidx.activity.compose.PredictiveBackHandler
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -34,7 +33,6 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
@@ -45,7 +43,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.necromagik.pureclock.data.AlarmEntity
 import com.necromagik.pureclock.data.SettingsManager
-import com.necromagik.pureclock.ui.animation.PureClockAnimationSpecs
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.BottomBarTab
 import com.necromagik.pureclock.ui.components.Pure3DIcon
@@ -63,8 +60,6 @@ import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.ui.viewmodel.AlarmViewModel
 import com.necromagik.pureclock.ui.viewmodel.StopwatchViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.ZoneId
@@ -144,41 +139,25 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
     var isUpdateBubbleDismissed by remember { mutableStateOf(false) }
 
+    // Единый центральный обработчик жеста "Назад" для всей навигации
     val isCustomBackEnabled = currentRoute != ScreenRoute.MAIN || isAddingAlarm || editingAlarm != null
-    var predictiveProgress by remember { mutableFloatStateOf(0f) }
 
-    PredictiveBackHandler(enabled = isCustomBackEnabled) { progressFlow: Flow<BackEventCompat> ->
-        try {
-            progressFlow.collect { backEvent ->
-                predictiveProgress = backEvent.progress
+    BackHandler(enabled = isCustomBackEnabled) {
+        when {
+            isAddingAlarm || editingAlarm != null -> {
+                isAddingAlarm = false
+                editingAlarm = null
             }
-            when {
-                isAddingAlarm || editingAlarm != null -> {
-                    isAddingAlarm = false
-                    editingAlarm = null
-                }
-                currentRoute == ScreenRoute.THEME_ENGINE -> currentRoute = ScreenRoute.SETTINGS
-                currentRoute == ScreenRoute.DEV -> currentRoute = ScreenRoute.MAIN
-                currentRoute == ScreenRoute.SETTINGS -> currentRoute = ScreenRoute.MAIN
-            }
-        } catch (_: CancellationException) {
-        } finally {
-            predictiveProgress = 0f
+            currentRoute == ScreenRoute.THEME_ENGINE -> currentRoute = ScreenRoute.SETTINGS
+            currentRoute == ScreenRoute.DEV -> currentRoute = ScreenRoute.MAIN
+            currentRoute == ScreenRoute.SETTINGS -> currentRoute = ScreenRoute.MAIN
         }
     }
-
-    val backScale = 1f - (predictiveProgress * 0.08f)
-    val backCornerRadius = (predictiveProgress * 28.dp.value).dp
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer {
-                scaleX = backScale
-                scaleY = backScale
-                clip = predictiveProgress > 0f
-                shape = RoundedCornerShape(backCornerRadius)
-            }
+            .background(MaterialTheme.colorScheme.background)
     ) {
         AnimatedContent(
             targetState = isAddingAlarm || editingAlarm != null,
@@ -188,13 +167,13 @@ fun MainScreen(viewModel: AlarmViewModel) {
                         initialOffsetY = { it },
                         animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
                     ) + fadeIn()).togetherWith(
-                        scaleOut(targetScale = 0.95f, animationSpec = PureClockAnimationSpecs.SmoothTween) + fadeOut()
+                        scaleOut(targetScale = 0.94f, animationSpec = tween(280)) + fadeOut()
                     )
                 } else {
-                    (scaleIn(initialScale = 0.95f, animationSpec = PureClockAnimationSpecs.SmoothTween) + fadeIn()).togetherWith(
+                    (scaleIn(initialScale = 0.94f, animationSpec = tween(280)) + fadeIn()).togetherWith(
                         slideOutVertically(
                             targetOffsetY = { it },
-                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            animationSpec = tween(260, easing = FastOutSlowInEasing)
                         ) + fadeOut()
                     )
                 }
@@ -245,19 +224,27 @@ fun MainScreen(viewModel: AlarmViewModel) {
                 AnimatedContent(
                     targetState = currentRoute,
                     transitionSpec = {
-                        when {
-                            initialState == ScreenRoute.MAIN && targetState == ScreenRoute.SETTINGS -> {
-                                (slideInVertically(initialOffsetY = { it / 3 }) + fadeIn(tween(300))).togetherWith(fadeOut(tween(200)))
-                            }
-                            initialState == ScreenRoute.SETTINGS && targetState == ScreenRoute.MAIN -> {
-                                fadeIn(tween(300)).togetherWith(slideOutVertically(targetOffsetY = { it / 3 }) + fadeOut(tween(200)))
-                            }
-                            targetState == ScreenRoute.THEME_ENGINE -> {
-                                (slideInHorizontally(initialOffsetX = { it }) + fadeIn()).togetherWith(slideOutHorizontally(targetOffsetX = { -it / 3 }) + fadeOut())
-                            }
-                            else -> {
-                                (slideInHorizontally(initialOffsetX = { -it / 3 }) + fadeIn()).togetherWith(slideOutHorizontally(targetOffsetX = { it }) + fadeOut())
-                            }
+                        val isGoingBack = targetState == ScreenRoute.MAIN ||
+                                (initialState == ScreenRoute.THEME_ENGINE && targetState == ScreenRoute.SETTINGS)
+
+                        if (isGoingBack) {
+                            (scaleIn(initialScale = 0.94f, animationSpec = tween(280, easing = FastOutSlowInEasing)) +
+                                    fadeIn(tween(220)))
+                                .togetherWith(
+                                    slideOutHorizontally(
+                                        targetOffsetX = { it },
+                                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(tween(180))
+                                )
+                        } else {
+                            (slideInHorizontally(
+                                initialOffsetX = { it },
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            ) + fadeIn(tween(220)))
+                                .togetherWith(
+                                    scaleOut(targetScale = 0.94f, animationSpec = tween(280, easing = FastOutSlowInEasing)) +
+                                            fadeOut(tween(180))
+                                )
                         }
                     },
                     label = "RouteTransition"
@@ -288,7 +275,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
                             LaunchedEffect(Unit) {
                                 if (settingsManager.allowBetaUpdates) {
-                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates("1.29")
+                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates("1.34")
                                     settingsManager.setBetaUpdateInfo(release)
                                 }
                             }

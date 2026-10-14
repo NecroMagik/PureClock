@@ -6,6 +6,11 @@ import android.content.Intent
 import android.os.Build
 import android.os.UserManager
 import android.util.Log
+import com.necromagik.pureclock.alarm.AlarmScheduler
+import com.necromagik.pureclock.data.AppDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class KeeperReceiver : BroadcastReceiver() {
 
@@ -23,32 +28,42 @@ class KeeperReceiver : BroadcastReceiver() {
         }
 
         val pendingResult = goAsync()
-        try {
-            when (action) {
-                // Пользователь расшифровал раздел данных (ввел PIN/графический ключ)
-                Intent.ACTION_USER_UNLOCKED -> {
-                    // Теперь безопасно поднять полный цикл вместе с WorkManager
-                    AppKeeper.start(context)
-                }
 
-                // До разблокировки (Direct Boot) или обычные триггеры времени
-                Intent.ACTION_BOOT_COMPLETED,
-                Intent.ACTION_LOCKED_BOOT_COMPLETED,
-                Intent.ACTION_USER_PRESENT,
-                Intent.ACTION_USER_FOREGROUND,
-                Intent.ACTION_MY_PACKAGE_REPLACED,
-                Intent.ACTION_TIME_CHANGED,
-                Intent.ACTION_TIMEZONE_CHANGED -> {
-                    if (isUnlocked) {
-                        AppKeeper.start(context)
-                    } else {
-                        // В заблокированном состоянии восстанавливаем только сигналы AlarmManager
-                        AppKeeper.reviveAllProcesses(context)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                when (action) {
+                    // При BOOT_COMPLETED и LOCKED_BOOT_COMPLETED в Android 15+ строго запрещено
+                    // запускать Foreground-сервисы и LifecycleService. Восстанавливаем только расписание AlarmManager!
+                    Intent.ACTION_BOOT_COMPLETED,
+                    Intent.ACTION_LOCKED_BOOT_COMPLETED -> {
+                        val db = AppDatabase.getDatabase(context)
+                        val scheduler = AlarmScheduler(context)
+                        val enabledAlarms = db.alarmDao().getEnabledAlarmsSync()
+                        enabledAlarms.forEach { alarm ->
+                            scheduler.schedule(alarm)
+                        }
+                    }
+
+                    // Когда пользователь реально взаимодействует с устройством (разблокировал экран),
+                    // ограничения BOOT_COMPLETED уже не действуют — можно запускать плановые задачи
+                    Intent.ACTION_USER_UNLOCKED,
+                    Intent.ACTION_USER_PRESENT,
+                    Intent.ACTION_USER_FOREGROUND,
+                    Intent.ACTION_MY_PACKAGE_REPLACED,
+                    Intent.ACTION_TIME_CHANGED,
+                    Intent.ACTION_TIMEZONE_CHANGED -> {
+                        if (isUnlocked) {
+                            AppKeeper.start(context)
+                        } else {
+                            AppKeeper.reviveAllProcesses(context)
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                pendingResult.finish()
             }
-        } finally {
-            pendingResult.finish()
         }
     }
 }

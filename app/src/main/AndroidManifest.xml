@@ -19,7 +19,6 @@
         android:name="android.permission.FOREGROUND_SERVICE"
         tools:ignore="ForegroundServicesDecl" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -105,12 +104,13 @@
             android:name=".alarm.AlarmService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse|mediaPlayback" />
+            android:foregroundServiceType="specialUse" />
+
         <service
             android:name=".alarm.TimerService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse|mediaPlayback" />
+            android:foregroundServiceType="specialUse" />
 
         <property
             android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
