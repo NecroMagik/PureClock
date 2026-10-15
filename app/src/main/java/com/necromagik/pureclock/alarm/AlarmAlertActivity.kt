@@ -1,21 +1,17 @@
 package com.necromagik.pureclock.alarm
 
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.media.AudioAttributes
-import android.media.Ringtone
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -66,7 +62,6 @@ import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
-import com.necromagik.pureclock.ui.theme.PureClockGreen
 import com.necromagik.pureclock.ui.theme.PureClockTheme
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import kotlinx.coroutines.CoroutineScope
@@ -81,21 +76,40 @@ import kotlin.random.Random
 
 class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
+    companion object {
+        const val ACTION_CLOSE_ALERT = "com.necromagik.pureclock.ACTION_CLOSE_ALERT"
+    }
+
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
     private var shakeListener: ((direction: Float) -> Unit)? = null
     private var lastShakeTime: Long = 0
-    private var ringtone: Ringtone? = null
-    private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     private var currentTimerId: String? = null
     private val durationTextState = mutableStateOf("")
 
+    private val closeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_CLOSE_ALERT) {
+                finish()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.necromagik.pureclock.util.OrientationLockHelper.lockPortraitOnPhones(this)
 
         wakeUpDeviceAndShowOverLockscreen()
+
+        val filter = IntentFilter(ACTION_CLOSE_ALERT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(closeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(closeReceiver, filter)
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -118,14 +132,14 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
                     displayLabel = label,
                     timerDurationDisplay = durationTextState.value,
                     onDismiss = { stopAlarmAndExit() },
-                onSnooze = { if (!isTimer) snoozeAlarm() else stopAlarmAndExit() },
-                onAddTimerTime = { extraMinutes -> addTimerMinutesAndRestart(label, extraMinutes) },
-                registerShakeListener = { listener ->
-                    shakeListener = listener
-                    accelerometer?.let {
-                        sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+                    onSnooze = { if (!isTimer) snoozeAlarm() else stopAlarmAndExit() },
+                    onAddTimerTime = { extraMinutes -> addTimerMinutesAndRestart(label, extraMinutes) },
+                    registerShakeListener = { listener ->
+                        shakeListener = listener
+                        accelerometer?.let {
+                            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+                        }
                     }
-                }
                 )
             }
         }
@@ -139,29 +153,22 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun parseIntentData(intent: Intent) {
-        val isTimer = intent.getBooleanExtra("IS_TIMER", false)
         currentTimerId = intent.getStringExtra(TimerService.EXTRA_TIMER_ID)
             ?: intent.getStringExtra("EXTRA_TIMER_ID")
         val durationSec = intent.getLongExtra("EXTRA_TIMER_DURATION_SECONDS", 0L)
         val passedDurationText = intent.getStringExtra("EXTRA_TIMER_DURATION_TEXT")
 
         durationTextState.value = when {
+            durationSec > 0L -> formatTimerDuration(durationSec)
             !passedDurationText.isNullOrBlank() -> passedDurationText
-                durationSec > 0L -> formatTimerDuration(durationSec)
-            else -> "Время вышло"
-        }
-
-        if (isTimer) {
-            playTimerSoundAndVibration()
+            else -> "00:00"
         }
     }
 
     private fun addTimerMinutesAndRestart(label: String, minutesToAdd: Int) {
-        stopMediaAndVibration()
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-        notificationManager.cancel(2003)
+        notificationManager.cancel(TimerService.ALARM_NOTIFICATION_ID)
 
-        // Обновляем карточку таймера в хранилище и перепланируем тревогу через TimerService
         TimerService.extendTimer(this, currentTimerId, label, minutesToAdd)
         dismissAndExit()
     }
@@ -173,50 +180,12 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
         return when {
             h > 0 && m > 0 && s > 0 -> String.format(Locale.ROOT, "%dч %02dм %02dс", h, m, s)
-                h > 0 && m > 0 -> String.format(Locale.ROOT, "%dч %02dм", h, m)
-                h > 0 && s > 0 -> String.format(Locale.ROOT, "%dч %02dс", h, s)
-                h > 0 -> "${h}ч"
-                m > 0 && s > 0 -> String.format(Locale.ROOT, "%dм %02dс", m, s)
-                m > 0 -> "${m}м"
+            h > 0 && m > 0 -> String.format(Locale.ROOT, "%dч %02dм", h, m)
+            h > 0 && s > 0 -> String.format(Locale.ROOT, "%dч %02dс", h, s)
+            h > 0 -> "${h}ч"
+            m > 0 && s > 0 -> String.format(Locale.ROOT, "%dм %02dс", m, s)
+            m > 0 -> "${m}м"
             else -> "${s}с"
-        }
-    }
-
-    private fun playTimerSoundAndVibration() {
-        val settings = SettingsManager.getInstance(this)
-
-        try {
-            val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            ringtone = RingtoneManager.getRingtone(applicationContext, alertUri)?.apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-                }
-                play()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        if (settings.isTimerVibrate) {
-            vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-                vibratorManager.defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                getSystemService(VIBRATOR_SERVICE) as Vibrator
-            }
-
-            val pattern = longArrayOf(0, 500, 300, 500, 300)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(pattern, 0)
-            }
         }
     }
 
@@ -288,38 +257,29 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(closeReceiver)
+        } catch (_: Exception) {}
         sensorManager?.unregisterListener(this)
-        stopMediaAndVibration()
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
         }
         super.onDestroy()
     }
 
-    private fun stopMediaAndVibration() {
-        ringtone?.stop()
-        ringtone = null
-        vibrator?.cancel()
-        vibrator = null
-    }
-
     private fun stopAlarmAndExit() {
-        stopMediaAndVibration()
-
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-        notificationManager.cancel(2003)
+        notificationManager.cancel(TimerService.ALARM_NOTIFICATION_ID)
 
-        val intent = Intent(this, AlarmService::class.java)
-        stopService(intent)
-        TimerService.stopService(this)
+        if (intent.getBooleanExtra("IS_TIMER", false)) {
+            TimerService.dismissRingingTimer(this, currentTimerId)
+        } else {
+            stopService(Intent(this, AlarmService::class.java))
+        }
         dismissAndExit()
     }
 
     private fun dismissAndExit() {
-        val mainIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        startActivity(mainIntent)
         finish()
     }
 }
@@ -421,7 +381,7 @@ fun AlarmAlertContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
-    .background(Color(0xFF07080A))
+            .background(Color(0xFF07080A))
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2f, size.height * 0.32f)
@@ -431,191 +391,188 @@ fun AlarmAlertContent(
                 brush = Brush.radialGradient(
                     colors = listOf(
                         accentColor.copy(alpha = pulseAlpha),
-            accentColor.copy(alpha = pulseAlpha * 0.3f),
-            Color.Transparent
-            ),
-            center = center,
-            radius = baseRadius * pulseScale
-            ),
-            center = center,
-            radius = baseRadius * pulseScale
+                        accentColor.copy(alpha = pulseAlpha * 0.3f),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = baseRadius * pulseScale
+                ),
+                center = center,
+                radius = baseRadius * pulseScale
             )
 
             drawCircle(
                 color = accentColor.copy(alpha = pulseAlpha * 0.5f),
-            center = center,
-            radius = baseRadius * 0.65f * pulseScale,
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                center = center,
+                radius = baseRadius * 0.65f * pulseScale,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
             )
         }
 
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-        .width(48.dp)
-        .align(Alignment.CenterStart)
-        .background(
-        Brush.horizontalGradient(
-            colors = listOf(accentColor.copy(alpha = leftEdgeAlpha.value), Color.Transparent)
-        )
-        )
+                .width(48.dp)
+                .align(Alignment.CenterStart)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(accentColor.copy(alpha = leftEdgeAlpha.value), Color.Transparent)
+                    )
+                )
         )
 
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-        .width(48.dp)
-        .align(Alignment.CenterEnd)
-        .background(
-        Brush.horizontalGradient(
-            colors = listOf(Color.Transparent, accentColor.copy(alpha = rightEdgeAlpha.value))
-        )
-        )
+                .width(48.dp)
+                .align(Alignment.CenterEnd)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(Color.Transparent, accentColor.copy(alpha = rightEdgeAlpha.value))
+                    )
+                )
         )
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-        .padding(24.dp)
-        .statusBarsPadding()
-        .navigationBarsPadding(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-        ) {
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Column(
+                .padding(24.dp)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-        Box(
-            modifier = Modifier
-                .pure3DEffect(
-                    shape = RoundedCornerShape(24.dp),
-        accentColor = accentColor,
-        depthDp = themeConfig.depthIntensityDp,
-        is3dEnabled = themeConfig.is3dEnabled,
-        isGlowEnabled = true,
-        surfaceColor = Color(0xFF14171E)
-        )
-        .padding(horizontal = 20.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
-        ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-        Icon(
-            imageVector = if (isTimer) Icons.Default.HourglassTop else Icons.Default.Alarm,
-        contentDescription = null,
-        tint = accentColor,
-        modifier = Modifier
-            .size(24.dp)
-        .graphicsLayer { rotationZ = iconTilt }
-        )
-        Text(
-            text = displayLabel.uppercase(),
-        color = accentColor,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.ExtraBold,
-        letterSpacing = 1.4.sp
-        )
-    }
-    }
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val timeToDisplay = if (isTimer) timerDurationDisplay else currentTimeText.ifEmpty { "00:00" }
-
-        RollingAlertTimeText(
-            formattedTime = timeToDisplay,
-        accentColor = accentColor,
-        isLongText = isTimer && timerDurationDisplay.length > 5
-        )
-
-        Text(
-            text = if (isTimer) "Таймер завершил отсчёт" else "Пора просыпаться!",
-        color = Color.White.copy(alpha = 0.6f),
-        fontSize = 15.sp,
-        fontWeight = FontWeight.Medium
-        )
-    }
-
-        if (isTimer) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxWidth()
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                TimerOneWaySwipeBar(
+                Box(
+                    modifier = Modifier
+                        .pure3DEffect(
+                            shape = RoundedCornerShape(24.dp),
+                            accentColor = accentColor,
+                            depthDp = themeConfig.depthIntensityDp,
+                            is3dEnabled = themeConfig.is3dEnabled,
+                            isGlowEnabled = true,
+                            surfaceColor = Color(0xFF14171E)
+                        )
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isTimer) Icons.Default.HourglassTop else Icons.Default.Alarm,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .graphicsLayer { rotationZ = iconTilt }
+                        )
+                        Text(
+                            text = displayLabel.uppercase(),
+                            color = accentColor,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.4.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val timeToDisplay = if (isTimer) timerDurationDisplay else currentTimeText.ifEmpty { "00:00" }
+
+                RollingAlertTimeText(
+                    formattedTime = timeToDisplay,
                     accentColor = accentColor,
-                onDismiss = onDismiss
+                    isLongText = isTimer && timerDurationDisplay.length > 5
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Text(
+                    text = if (isTimer) "Таймер завершил отсчёт" else "Пора просыпаться!",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            if (isTimer) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                listOf(1, 3, 5).forEach { mins ->
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF1C1F28))
-                    .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
-                    .bounceClick { onAddTimerTime(mins) },
-                    contentAlignment = Alignment.Center
+                    TimerOneWaySwipeBar(
+                        accentColor = accentColor,
+                        onDismiss = onDismiss
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                    Text(
-                        text = "+$mins мин",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                    )
+                        listOf(1, 3, 5).forEach { mins ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF1C1F28))
+                                    .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+                                    .bounceClick { onAddTimerTime(mins) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "+$mins мин",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                 }
-                }
-            }
-            }
-        } else {
-            when (dismissMethod) {
-                "MATH" -> {
-                    MathDismissCard(
-                        accentColor = accentColor,
-                    snoozeMinutes = snoozeMinutes,
-                    onDismiss = onDismiss,
-                    onSnooze = onSnooze
-                    )
-                }
+            } else {
+                when (dismissMethod) {
+                    "MATH" -> {
+                        MathDismissCard(
+                            accentColor = accentColor,
+                            snoozeMinutes = snoozeMinutes,
+                            onDismiss = onDismiss,
+                            onSnooze = onSnooze
+                        )
+                    }
 
-                "SHAKE" -> {
-                    ShakeDismissSection(
-                        shakeCount = shakeCount,
-                    accentColor = accentColor,
-                    snoozeMinutes = snoozeMinutes,
-                    onSnooze = onSnooze
-                    )
-                }
+                    "SHAKE" -> {
+                        ShakeDismissSection(
+                            shakeCount = shakeCount,
+                            accentColor = accentColor,
+                            snoozeMinutes = snoozeMinutes,
+                            onSnooze = onSnooze
+                        )
+                    }
 
-                else -> {
-                    AlarmDragAndReleaseSwipeBar(
-                        accentColor = accentColor,
-                    snoozeMinutes = snoozeMinutes,
-                    onDismiss = onDismiss,
-                    onSnooze = onSnooze
-                    )
+                    else -> {
+                        AlarmDragAndReleaseSwipeBar(
+                            accentColor = accentColor,
+                            snoozeMinutes = snoozeMinutes,
+                            onDismiss = onDismiss,
+                            onSnooze = onSnooze
+                        )
+                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-    }
     }
 }
 
-// ============================================================================
-// УЛУЧШЕННЫЙ РЕЖИМ ВСТРЯХИВАНИЯ (SHAKE С АНИМИРОВАННЫМИ СТРЕЛКАМИ)
-// ============================================================================
 @Composable
 private fun ShakeDismissSection(
     shakeCount: Int,
@@ -647,103 +604,100 @@ private fun ShakeDismissSection(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(18.dp),
-    modifier = Modifier.fillMaxWidth()
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-        .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .graphicsLayer {
-                translationX = -arrowOffset
-                alpha = arrowAlpha
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = -arrowOffset
+                        alpha = arrowAlpha
+                    }
+            ) {
+                Icon(Icons.Default.KeyboardArrowLeft, contentDescription = null, tint = accentColor, modifier = Modifier.size(28.dp))
+                Icon(Icons.Default.KeyboardArrowLeft, contentDescription = null, tint = accentColor.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
             }
-        ) {
-        Icon(Icons.Default.KeyboardArrowLeft, contentDescription = null, tint = accentColor, modifier = Modifier.size(28.dp))
-        Icon(Icons.Default.KeyboardArrowLeft, contentDescription = null, tint = accentColor.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
-    }
 
-        Box(
-            modifier = Modifier
-                .size(96.dp)
-        .clip(CircleShape)
-        .background(Color(0xFF141720))
-        .border(2.dp, accentColor, CircleShape),
-        contentAlignment = Alignment.Center
-        ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "$shakeCount",
-            color = Color.White,
-            fontSize = 38.sp,
-            fontWeight = FontWeight.ExtraBold
-            )
-            Text(
-                text = "ВСТРЯХНИ",
-            color = accentColor,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.1.sp
-            )
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF141720))
+                    .border(2.dp, accentColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "$shakeCount",
+                        color = Color.White,
+                        fontSize = 38.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "ВСТРЯХНИ",
+                        color = accentColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.1.sp
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = arrowOffset
+                        alpha = arrowAlpha
+                    }
+            ) {
+                Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = accentColor.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = accentColor, modifier = Modifier.size(28.dp))
+            }
         }
-    }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .graphicsLayer {
-                translationX = arrowOffset
-                alpha = arrowAlpha
-            }
-        ) {
-        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = accentColor.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
-        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = accentColor, modifier = Modifier.size(28.dp))
-    }
-    }
 
         Text(
             text = "Трясите телефон влево и вправо для сброса",
-        color = Color.Gray,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Medium
+            color = Color.Gray,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
         )
 
         Box(
             modifier = Modifier
                 .height(48.dp)
-        .clip(RoundedCornerShape(24.dp))
-        .background(Color(0xFF181B24))
-        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
-        .clickable { onSnooze() }
-        .bounceClick()
-        .padding(horizontal = 24.dp),
-        contentAlignment = Alignment.Center
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF181B24))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
+                .clickable { onSnooze() }
+                .bounceClick()
+                .padding(horizontal = 24.dp),
+            contentAlignment = Alignment.Center
         ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-        Icon(Icons.Default.Snooze, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
-        Text(
-            text = "Отложить на $snoozeMinutes мин",
-        color = Color.White.copy(alpha = 0.85f),
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold
-        )
-    }
-    }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Snooze, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                Text(
+                    text = "Отложить на $snoozeMinutes мин",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
     }
 }
 
-// ============================================================================
-// УЛУЧШЕННЫЙ РЕЖИМ МАТЕМАТИКИ (MATH 3D-КАРТОЧКА)
-// ============================================================================
 @Composable
 private fun MathDismissCard(
     accentColor: Color,
@@ -760,87 +714,84 @@ private fun MathDismissCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-    .clip(RoundedCornerShape(28.dp))
-    .background(Color(0xFF13151D))
-    .border(1.5.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
-    .padding(20.dp),
-    contentAlignment = Alignment.Center
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color(0xFF13151D))
+            .border(1.5.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
+            .padding(20.dp),
+        contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.fillMaxWidth()
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-        Text(
-            text = "РЕШИТЕ ПРИМЕР ДЛЯ СБРОСА",
-        color = Color.Gray,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 1.1.sp
-        )
+            Text(
+                text = "РЕШИТЕ ПРИМЕР ДЛЯ СБРОСА",
+                color = Color.Gray,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.1.sp
+            )
 
-        Text(
-            text = "$num1 + $num2 = ?",
-        color = accentColor,
-        fontSize = 38.sp,
-        fontWeight = FontWeight.ExtraBold,
-        letterSpacing = 1.2.sp
-        )
+            Text(
+                text = "$num1 + $num2 = ?",
+                color = accentColor,
+                fontSize = 38.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.2.sp
+            )
 
-        OutlinedTextField(
-            value = mathInput,
-        onValueChange = { input ->
-            if (input.length <= 4 && input.all { it.isDigit() }) {
-                mathInput = input
-                if (input.toIntOrNull() == correctAnswer) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onDismiss()
-                }
+            OutlinedTextField(
+                value = mathInput,
+                onValueChange = { input ->
+                    if (input.length <= 4 && input.all { it.isDigit() }) {
+                        mathInput = input
+                        if (input.toIntOrNull() == correctAnswer) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        }
+                    }
+                },
+                singleLine = true,
+                placeholder = { Text("Ответ", color = Color.Gray.copy(alpha = 0.5f), fontSize = 20.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                textStyle = LocalTextStyle.current.copy(
+                    textAlign = TextAlign.Center,
+                    fontSize = 28.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                ),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = accentColor,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                    focusedContainerColor = Color(0xFF1B1E28),
+                    unfocusedContainerColor = Color(0xFF181A22)
+                ),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.width(160.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1E212B))
+                    .clickable { onSnooze() }
+                    .bounceClick(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Отложить сигнал ($snoozeMinutes мин)",
+                    color = Color.Gray,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
-        },
-        singleLine = true,
-        placeholder = { Text("Ответ", color = Color.Gray.copy(alpha = 0.5f), fontSize = 20.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        textStyle = LocalTextStyle.current.copy(
-            textAlign = TextAlign.Center,
-            fontSize = 28.sp,
-            color = Color.White,
-            fontWeight = FontWeight.Bold
-        ),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = accentColor,
-            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-            focusedContainerColor = Color(0xFF1B1E28),
-            unfocusedContainerColor = Color(0xFF181A22)
-        ),
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.width(160.dp)
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-        .height(46.dp)
-        .clip(RoundedCornerShape(16.dp))
-        .background(Color(0xFF1E212B))
-        .clickable { onSnooze() }
-        .bounceClick(),
-        contentAlignment = Alignment.Center
-        ) {
-        Text(
-            text = "Отложить сигнал ($snoozeMinutes мин)",
-        color = Color.Gray,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold
-        )
-    }
-    }
+        }
     }
 }
 
-// ============================================================================
-// КАПСУЛА БУДИЛЬНИКА: ЦЕНТРАЛЬНАЯ ТОЧКА (СБРОС ВПРАВО / ОТЛОЖИТЬ ВЛЕВО)
-// ============================================================================
 @Composable
 private fun AlarmDragAndReleaseSwipeBar(
     accentColor: Color,
@@ -876,7 +827,7 @@ private fun AlarmDragAndReleaseSwipeBar(
             blue = accentColor.blue + (dismissColor.blue - accentColor.blue) * progress,
             alpha = 1f
         )
-            progress < 0f -> {
+        progress < 0f -> {
             val p = -progress
             Color(
                 red = accentColor.red + (snoozeColor.red - accentColor.red) * p,
@@ -890,152 +841,149 @@ private fun AlarmDragAndReleaseSwipeBar(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-    modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-        .height(68.dp)
-        .onSizeChanged { containerWidthPx = it.width.toFloat() }
-        .clip(RoundedCornerShape(34.dp))
-        .background(
-        brush = Brush.horizontalGradient(
-            colors = listOf(
-                if (progress < 0f) snoozeColor.copy(alpha = (-progress * 0.3f).coerceIn(0f, 0.3f)) else Color(0xFF16181F),
-        Color(0xFF16181F),
-        if (progress > 0f) dismissColor.copy(alpha = (progress * 0.35f).coerceIn(0f, 0.35f)) else Color(0xFF16181F)
-        )
-        )
-        )
-        .border(
-        width = 1.dp,
-        color = Color.White.copy(alpha = 0.10f),
-        shape = RoundedCornerShape(34.dp)
-    )
-        .pointerInput(maxDragPx) {
-        detectHorizontalDragGestures(
-            onDragEnd = {
-                if (maxDragPx > 0f && dragOffsetX.value >= maxDragPx * 0.82f) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch {
-                        dragOffsetX.animateTo(maxDragPx, tween(120))
-                        onDismiss()
-                    }
-                } else if (maxDragPx > 0f && dragOffsetX.value <= -maxDragPx * 0.82f) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch {
-                        dragOffsetX.animateTo(-maxDragPx, tween(120))
-                        onSnooze()
-                    }
-                } else {
-                    scope.launch {
-                        dragOffsetX.animateTo(
-                            0f,
-                            spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessLow
-                            )
-                        )
-                    }
-                }
-            },
-            onDragCancel = {
-                scope.launch {
-                    dragOffsetX.animateTo(
-                        0f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
+                .height(68.dp)
+                .onSizeChanged { containerWidthPx = it.width.toFloat() }
+                .clip(RoundedCornerShape(34.dp))
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            if (progress < 0f) snoozeColor.copy(alpha = (-progress * 0.3f).coerceIn(0f, 0.3f)) else Color(0xFF16181F),
+                            Color(0xFF16181F),
+                            if (progress > 0f) dismissColor.copy(alpha = (progress * 0.35f).coerceIn(0f, 0.35f)) else Color(0xFF16181F)
                         )
                     )
-                }
-            },
-            onHorizontalDrag = { change, dragAmount ->
-                change.consume()
-                val newTarget = (dragOffsetX.value + dragAmount).coerceIn(-maxDragPx, maxDragPx)
-                scope.launch { dragOffsetX.snapTo(newTarget) }
-            }
-        )
-    },
-        contentAlignment = Alignment.Center
-        ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-        .padding(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-        ) {
-        Text(
-            text = "◂ Отложить",
-        color = if (progress < -0.3f) snoozeColor else Color.Gray.copy(alpha = 0.6f),
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = "Сброс ▸",
-        color = if (progress > 0.3f) dismissColor else Color.Gray.copy(alpha = 0.6f),
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold
-        )
-    }
-
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(dragOffsetX.value.roundToInt(), 0) }
-        .size(width = thumbWidth, height = 68.dp)
-        .clip(RoundedCornerShape(34.dp))
-        .background(currentThumbColor),
-        contentAlignment = Alignment.Center
-        ) {
-        val isAtRightEnd = maxDragPx > 0f && dragOffsetX.value >= maxDragPx * 0.8f
-        val isAtLeftEnd = maxDragPx > 0f && dragOffsetX.value <= -maxDragPx * 0.8f
-
-        when {
-            isAtRightEnd -> {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                contentDescription = "Сброс",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
                 )
-            }
-            isAtLeftEnd -> {
-                Icon(
-                    imageVector = Icons.Default.Alarm,
-                contentDescription = "Отложить",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(34.dp)
                 )
-            }
-            else -> {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .pointerInput(maxDragPx) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (maxDragPx > 0f && dragOffsetX.value >= maxDragPx * 0.82f) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch {
+                                    dragOffsetX.animateTo(maxDragPx, tween(120))
+                                    onDismiss()
+                                }
+                            } else if (maxDragPx > 0f && dragOffsetX.value <= -maxDragPx * 0.82f) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch {
+                                    dragOffsetX.animateTo(-maxDragPx, tween(120))
+                                    onSnooze()
+                                }
+                            } else {
+                                scope.launch {
+                                    dragOffsetX.animateTo(
+                                        0f,
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        )
+                                    )
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            scope.launch {
+                                dragOffsetX.animateTo(
+                                    0f,
+                                    spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessLow
+                                    )
+                                )
+                            }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val newTarget = (dragOffsetX.value + dragAmount).coerceIn(-maxDragPx, maxDragPx)
+                            scope.launch { dragOffsetX.snapTo(newTarget) }
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(modifier = Modifier.size(4.dp, 16.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape))
-                    Box(modifier = Modifier.size(4.dp, 20.dp).background(Color.Black.copy(alpha = 0.65f), CircleShape))
-                    Box(modifier = Modifier.size(4.dp, 16.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape))
+            ) {
+                Text(
+                    text = "◂ Отложить",
+                    color = if (progress < -0.3f) snoozeColor else Color.Gray.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Сброс ▸",
+                    color = if (progress > 0.3f) dismissColor else Color.Gray.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(dragOffsetX.value.roundToInt(), 0) }
+                    .size(width = thumbWidth, height = 68.dp)
+                    .clip(RoundedCornerShape(34.dp))
+                    .background(currentThumbColor),
+                contentAlignment = Alignment.Center
+            ) {
+                val isAtRightEnd = maxDragPx > 0f && dragOffsetX.value >= maxDragPx * 0.8f
+                val isAtLeftEnd = maxDragPx > 0f && dragOffsetX.value <= -maxDragPx * 0.8f
+
+                when {
+                    isAtRightEnd -> {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Сброс",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    isAtLeftEnd -> {
+                        Icon(
+                            imageVector = Icons.Default.Alarm,
+                            contentDescription = "Отложить",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    else -> {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.size(4.dp, 16.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape))
+                            Box(modifier = Modifier.size(4.dp, 20.dp).background(Color.Black.copy(alpha = 0.65f), CircleShape))
+                            Box(modifier = Modifier.size(4.dp, 16.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape))
+                        }
+                    }
                 }
             }
         }
-    }
-    }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
             text = "Отложить на $snoozeMinutes мин (влево) • Сбросить (вправо)",
-        color = Color.Gray,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Medium
+            color = Color.Gray,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }
 
-// ============================================================================
-// КАПСУЛА ТАЙМЕРА: СВАЙП ВПРАВО ДЛЯ СБРОСА
-// ============================================================================
 @Composable
 private fun TimerOneWaySwipeBar(
     accentColor: Color,
@@ -1058,120 +1006,131 @@ private fun TimerOneWaySwipeBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-    .height(68.dp)
-    .onSizeChanged { containerWidthPx = it.width.toFloat() }
-    .clip(RoundedCornerShape(34.dp))
-    .background(Color(0xFF181B22))
-    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(34.dp))
-    .pointerInput(maxDragPx) {
-        detectHorizontalDragGestures(
-            onDragEnd = {
-                if (maxDragPx > 0f && dragOffsetX.value >= maxDragPx * 0.75f) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch {
-                        dragOffsetX.animateTo(maxDragPx, tween(150))
-                        onDismiss()
+            .height(68.dp)
+            .onSizeChanged { containerWidthPx = it.width.toFloat() }
+            .clip(RoundedCornerShape(34.dp))
+            .background(Color(0xFF181B22))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(34.dp))
+            .pointerInput(maxDragPx) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (maxDragPx > 0f && dragOffsetX.value >= maxDragPx * 0.75f) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch {
+                                dragOffsetX.animateTo(maxDragPx, tween(150))
+                                onDismiss()
+                            }
+                        } else {
+                            scope.launch {
+                                dragOffsetX.animateTo(
+                                    0f,
+                                    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                                )
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        scope.launch { dragOffsetX.animateTo(0f) }
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        val newTarget = (dragOffsetX.value + dragAmount).coerceIn(0f, maxDragPx)
+                        scope.launch { dragOffsetX.snapTo(newTarget) }
                     }
-                } else {
-                    scope.launch {
-                        dragOffsetX.animateTo(
-                            0f,
-                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
-                        )
-                    }
-                }
+                )
             },
-            onDragCancel = {
-                scope.launch { dragOffsetX.animateTo(0f) }
-            },
-            onHorizontalDrag = { change, dragAmount ->
-                change.consume()
-                val newTarget = (dragOffsetX.value + dragAmount).coerceIn(0f, maxDragPx)
-                scope.launch { dragOffsetX.snapTo(newTarget) }
-            }
-        )
-    },
-    contentAlignment = Alignment.CenterStart
+        contentAlignment = Alignment.CenterStart
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-        .padding(start = 80.dp, end = 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+                .padding(start = 80.dp, end = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-        Text("Свайп вправо для сброса", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.Gray.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
-    }
+            Text("Свайп вправо для сброса", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.Gray.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+        }
 
         Box(
             modifier = Modifier
                 .offset { IntOffset(dragOffsetX.value.roundToInt(), 0) }
-        .size(width = thumbWidth, height = 68.dp)
-        .clip(RoundedCornerShape(34.dp))
-        .background(accentColor),
-        contentAlignment = Alignment.Center
+                .size(width = thumbWidth, height = 68.dp)
+                .clip(RoundedCornerShape(34.dp))
+                .background(accentColor),
+            contentAlignment = Alignment.Center
         ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-        contentDescription = null,
-        tint = Color.Black,
-        modifier = Modifier.size(24.dp)
-        )
-    }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = Color.Black,
+                modifier = Modifier.size(24.dp)
+            )
+        }
     }
 }
 
-// ============================================================================
-// БАРАБАННЫЙ НАКАТ ЦИФР
-// ============================================================================
 @Composable
 private fun RollingAlertTimeText(
     formattedTime: String,
     accentColor: Color,
     isLongText: Boolean
 ) {
+    val hasDigits = remember(formattedTime) { formattedTime.any { it.isDigit() } }
+
+    if (!hasDigits) {
+        Text(
+            text = formattedTime,
+            fontSize = 44.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        return
+    }
+
     val fontSize = if (isLongText) 48.sp else 72.sp
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.Center,
-    modifier = Modifier.fillMaxWidth()
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxWidth()
     ) {
         formattedTime.forEachIndexed { index, char ->
-            if (char == ':' || char == ' ' || char == 'ч' || char == 'м' || char == 'с') {
+            if (!char.isDigit()) {
                 Text(
                     text = char.toString(),
-                fontSize = if (char == 'ч' || char == 'м' || char == 'с') (fontSize.value * 0.45f).sp else fontSize,
-                fontWeight = FontWeight.Bold,
-                color = if (char == 'ч' || char == 'м' || char == 'с') accentColor else Color.White.copy(alpha = 0.6f),
-                modifier = Modifier.padding(horizontal = if (char == ' ') 2.dp else 1.dp)
+                    fontSize = if (char != ':' && char != ' ') (fontSize.value * 0.45f).sp else fontSize,
+                    fontWeight = FontWeight.Bold,
+                    color = if (char != ':' && char != ' ') accentColor else Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = if (char == ' ') 2.dp else 1.dp)
                 )
             } else {
                 AnimatedContent(
                     targetState = char,
-                transitionSpec = {
-                    (slideInVertically(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    ) { -it } + fadeIn()).togetherWith(
-                        slideOutVertically(
+                    transitionSpec = {
+                        (slideInVertically(
                             animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             )
-                        ) { it } + fadeOut()
-                    )
-                },
-                label = "AlertRollDigit_$index"
+                        ) { -it } + fadeIn()).togetherWith(
+                            slideOutVertically(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ) { it } + fadeOut()
+                        )
+                    },
+                    label = "AlertRollDigit_$index"
                 ) { targetChar ->
                     Text(
                         text = targetChar.toString(),
-                    fontSize = fontSize,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White
+                        fontSize = fontSize,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
                     )
                 }
             }
@@ -1179,17 +1138,14 @@ private fun RollingAlertTimeText(
     }
 }
 
-// ============================================================================
-// COMPOSE PREVIEWS
-// ============================================================================
 @Preview(name = "Alarm Alert (Будильник: Свайп)", showBackground = true, backgroundColor = 0xFF07080A)
 @Composable
 private fun AlarmAlertPreview_Alarm() {
     PureClockTheme {
         AlarmAlertContent(
             isTimer = false,
-        displayLabel = "Подъем на работу",
-        timerDurationDisplay = "07:30"
+            displayLabel = "Подъем на работу",
+            timerDurationDisplay = "07:30"
         )
     }
 }
@@ -1200,8 +1156,8 @@ private fun AlarmAlertPreview_Timer() {
     PureClockTheme {
         AlarmAlertContent(
             isTimer = true,
-        displayLabel = "Варка спагетти",
-        timerDurationDisplay = "5м 00с"
+            displayLabel = "Варка спагетти",
+            timerDurationDisplay = "5м 00с"
         )
     }
 }

@@ -12,8 +12,8 @@ android {
         applicationId = "com.necromagik.pureclock"
         minSdk = 29
         targetSdk = 37
-        versionCode = 135
-        versionName = "v1.32d"
+        versionCode = 137
+        versionName = "v1.32e"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -59,6 +59,7 @@ ksp {
 dependencies {
     // Core & Lifecycle
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.foundation)
     implementation(libs.androidx.lifecycle.runtime.ktx)

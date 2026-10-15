@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.necromagik.pureclock.util.OrientationLockHelper.lockPortraitOnPhones(this)
 
         requestIgnoreBatteryOptimizations()
         ClockIconManager(applicationContext).updateDynamicShortcut()

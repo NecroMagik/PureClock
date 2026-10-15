@@ -18,6 +18,7 @@ class WidgetConfigActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.necromagik.pureclock.util.OrientationLockHelper.lockPortraitOnPhones(this)
 
         setResult(RESULT_CANCELED)
 

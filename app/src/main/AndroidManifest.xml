@@ -37,14 +37,12 @@
         <!-- Главное окно -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="assetsPaths|keyboardHidden|orientation|screenSize"
+            android:configChanges="assetsPaths|keyboardHidden|orientation|screenSize|screenLayout"
             android:directBootAware="true"
             android:enabled="true"
             android:exported="true"
             android:launchMode="singleTop"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.PureClock"
-            tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity">
+            android:theme="@style/Theme.PureClock">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -73,9 +71,7 @@
             android:name=".widget.WidgetConfigActivity"
             android:directBootAware="true"
             android:exported="true"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.PureClock"
-            tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity">
+            android:theme="@style/Theme.PureClock">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
@@ -83,16 +79,14 @@
 
         <activity
             android:name=".alarm.AlarmAlertActivity"
-            android:configChanges="mcc|mnc|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize"
+            android:configChanges="mcc|mnc|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
             android:directBootAware="true"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleInstance"
-            android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
-            android:turnScreenOn="true"
-            tools:ignore="DiscouragedOrientationLocked,LockedOrientationActivity" />
+            android:turnScreenOn="true" />
 
         <service
             android:name=".alarm.StopwatchService"
@@ -105,7 +99,6 @@
             android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
-
         <service
             android:name=".alarm.TimerService"
             android:directBootAware="true"

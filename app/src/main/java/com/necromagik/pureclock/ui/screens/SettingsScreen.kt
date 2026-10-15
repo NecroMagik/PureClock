@@ -49,7 +49,7 @@ import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 
-private const val APP_VERSION = "1.32d"
+private const val APP_VERSION = "1.32e"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

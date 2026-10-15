@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 
 class TimerReceiver : BroadcastReceiver() {
 
@@ -13,7 +12,14 @@ class TimerReceiver : BroadcastReceiver() {
         if (intent.action == ACTION_TIMER_ALARM) {
             val timerId = intent.getStringExtra(EXTRA_TIMER_ID)
             val label = intent.getStringExtra(EXTRA_TIMER_LABEL) ?: "Таймер"
-            TimerService.triggerAlarm(context, timerId, label)
+            val durationText = intent.getStringExtra(EXTRA_TIMER_DURATION_TEXT).orEmpty()
+            TimerService.triggerAlarm(
+                context = context,
+                timerId = timerId,
+                label = label,
+                durationSeconds = 0L,
+                durationText = durationText
+            )
         }
     }
 
@@ -21,6 +27,7 @@ class TimerReceiver : BroadcastReceiver() {
         const val ACTION_TIMER_ALARM = "com.necromagik.pureclock.ACTION_TIMER_ALARM"
         const val EXTRA_TIMER_ID = "extra_timer_id"
         const val EXTRA_TIMER_LABEL = "extra_timer_label"
+        const val EXTRA_TIMER_DURATION_TEXT = "extra_timer_duration_text"
 
         fun scheduleTimerAlarm(
             context: Context,
@@ -35,6 +42,7 @@ class TimerReceiver : BroadcastReceiver() {
                 action = ACTION_TIMER_ALARM
                 putExtra(EXTRA_TIMER_ID, timerId)
                 putExtra(EXTRA_TIMER_LABEL, label)
+                putExtra(EXTRA_TIMER_DURATION_TEXT, durationText)
             }
 
             val requestCode = timerId.hashCode()
@@ -47,7 +55,9 @@ class TimerReceiver : BroadcastReceiver() {
 
             val showIntent = Intent(context, AlarmAlertActivity::class.java).apply {
                 putExtra("IS_TIMER", true)
+                putExtra("EXTRA_TIMER_ID", timerId)
                 putExtra("ALARM_LABEL", label)
+                putExtra("EXTRA_TIMER_DURATION_TEXT", durationText)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
             val showPendingIntent = PendingIntent.getActivity(

@@ -65,6 +65,7 @@ import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewMode
 import kotlinx.coroutines.delay
 import java.util.Locale
+import androidx.compose.ui.platform.LocalContext
 
 val QuickTimerPresets = listOf(
     1L to "1 мин",
@@ -82,6 +83,7 @@ fun TimerScreen(
     onOpenSettings: () -> Unit = {},
     onTimerStateChanged: (isRunning: Boolean, action: () -> Unit) -> Unit = { _, _ -> }
 ) {
+    val context = LocalContext.current
     val themeConfig = LocalPureClockConfig.current
     val accentColor = themeConfig.accentColor
 
@@ -156,6 +158,35 @@ fun TimerScreen(
                     .padding(horizontal = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                val hasCompletedOrRinging = timersList.any { it.state == TimerState.COMPLETED } ||
+                        com.necromagik.pureclock.alarm.TimerService.isRinging
+
+                AnimatedVisibility(
+                    visible = hasCompletedOrRinging,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Button(
+                        onClick = {
+                            com.necromagik.pureclock.alarm.TimerService.dismissRingingTimer(context)
+                            timersList.filter { it.state == TimerState.COMPLETED }.forEach {
+                                timerViewModel.resetSingleTimer(it.id)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFF5252),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .height(52.dp)
+                            .bounceClick()
+                    ) {
+                        Text("Отключить сигнал таймера", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    }
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

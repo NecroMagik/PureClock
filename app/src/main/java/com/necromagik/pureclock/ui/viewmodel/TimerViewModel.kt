@@ -214,6 +214,13 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             val item = list[index]
             val now = System.currentTimeMillis()
 
+            // Если таймер уже прозвенел (COMPLETED) или сейчас звонит — нажатие на кнопку сбрасывает сигнал!
+            if (item.state == TimerState.COMPLETED || TimerService.isRinging) {
+                TimerService.dismissRingingTimer(getApplication(), item.id)
+                resetSingleTimer(id)
+                return
+            }
+
             if (item.state == TimerState.RUNNING) {
                 TimerReceiver.cancelTimerAlarm(getApplication(), item.id)
                 val exactRemaining = (item.endTimestampMillis - now).coerceAtLeast(0L)
@@ -262,6 +269,9 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetSingleTimer(id: String) {
+        // Гарантированно глушим сигнал, если таймер в этот момент звенит
+        TimerService.dismissRingingTimer(getApplication(), id)
+
         val list = _timersList.value.toMutableList()
         val index = list.indexOfFirst { it.id == id }
         if (index != -1) {
@@ -280,11 +290,15 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
         if (!hasRunning) {
             ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
+            TimerService.stopService(getApplication())
+        } else {
+            updateServiceState(true)
         }
-        updateServiceState(hasRunning)
     }
 
     fun deleteTimer(id: String) {
+        TimerService.dismissRingingTimer(getApplication(), id)
+
         val list = _timersList.value.toMutableList()
         TimerReceiver.cancelTimerAlarm(getApplication(), id)
         list.removeAll { it.id == id }
@@ -297,8 +311,10 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
         if (!hasRunning) {
             ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
+            TimerService.stopService(getApplication())
+        } else {
+            updateServiceState(true)
         }
-        updateServiceState(hasRunning)
     }
 
     fun extendTimer(timerId: String?, label: String, extraSeconds: Long) {
