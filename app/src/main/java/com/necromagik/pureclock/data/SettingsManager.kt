@@ -15,6 +15,7 @@ import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.apply
+import com.necromagik.pureclock.ui.theme.SystemThemeUtils
 
 enum class AnalogStyle(val title: String, val description: String) {
     OXYGEN("OxygenOS", "NEVER SETTLE"),
@@ -41,7 +42,7 @@ enum class AlarmPickerStyle(val title: String, val description: String) {
 data class ThemeState(
     val themeMode: String = "SYSTEM",
     val isPureMonocolor: Boolean = true,
-    val accentColorHex: String = "#00E676",
+    val accentColorHex: String = SystemThemeUtils.SYSTEM_MONET_KEY,
     val cardCornerRadiusDp: Int = 20,
     val is3DEffectsEnabled: Boolean = true,
     val isNeonGlowEnabled: Boolean = true,
@@ -112,7 +113,8 @@ class SettingsManager private constructor(context: Context) {
         ThemeState(
             themeMode = prefs.getString(KEY_THEME_MODE, "SYSTEM") ?: "SYSTEM",
             isPureMonocolor = prefs.getBoolean(KEY_PURE_MONOCOLOR, true),
-            accentColorHex = prefs.getString(KEY_ACCENT_COLOR, "#00E676") ?: "#00E676",
+            accentColorHex = prefs.getString(KEY_ACCENT_COLOR, SystemThemeUtils.SYSTEM_MONET_KEY)
+                ?: SystemThemeUtils.SYSTEM_MONET_KEY,
             cardCornerRadiusDp = prefs.getInt(KEY_CARD_CORNER_RADIUS, 20),
             is3DEffectsEnabled = prefs.getBoolean(KEY_3D_EFFECTS, true),
             isNeonGlowEnabled = prefs.getBoolean(KEY_NEON_GLOW, true),
@@ -344,11 +346,28 @@ class SettingsManager private constructor(context: Context) {
         }
 
     var accentColorHex: String
-        get() = prefs.getString(KEY_ACCENT_COLOR, "#00E676") ?: "#00E676"
+        get() = prefs.getString(KEY_ACCENT_COLOR, SystemThemeUtils.SYSTEM_MONET_KEY)
+            ?: SystemThemeUtils.SYSTEM_MONET_KEY
         set(value) {
             prefs.edit().putString(KEY_ACCENT_COLOR, value).apply()
             _themeState.value = _themeState.value.copy(accentColorHex = value)
         }
+
+    val accentColor: Color
+        get() = getAccentColor(accentColorHex)
+
+    fun getAccentColor(hex: String = accentColorHex): Color {
+        return try {
+            val resolvedHex = if (hex.equals(SystemThemeUtils.SYSTEM_MONET_KEY, ignoreCase = true)) {
+                SystemThemeUtils.getSystemAccentHex(appContext)
+            } else {
+                hex
+            }
+            Color(android.graphics.Color.parseColor(resolvedHex))
+        } catch (_: Exception) {
+            Color(android.graphics.Color.parseColor(SystemThemeUtils.getSystemAccentHex(appContext)))
+        }
+    }
 
     var cardCornerRadiusDp: Int
         get() = prefs.getInt(KEY_CARD_CORNER_RADIUS, 20)
@@ -377,17 +396,6 @@ class SettingsManager private constructor(context: Context) {
             prefs.edit().putInt(KEY_DEPTH_INTENSITY, value).apply()
             _themeState.value = _themeState.value.copy(depthIntensityDp = value)
         }
-
-    val accentColor: Color
-        get() = getAccentColor(accentColorHex)
-
-    fun getAccentColor(hex: String = accentColorHex): Color {
-        return try {
-            Color(android.graphics.Color.parseColor(hex))
-        } catch (_: Exception) {
-            Color(0xFF00E676)
-        }
-    }
 
     object UpdateChecker {
         private const val TAG = "PureClock_UPDATER"

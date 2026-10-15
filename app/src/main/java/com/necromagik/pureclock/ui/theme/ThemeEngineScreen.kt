@@ -223,8 +223,7 @@ fun ThemeEngineScreen(
                 onPureMonocolorToggle = { settingsManager.isPureMonocolor = it },
                 onOpenColorDialog = { showCustomColorDialog = true },
                 onSelectSystemAccent = {
-                    val freshSystemHex = SystemThemeUtils.getSystemAccentHex(context)
-                    settingsManager.accentColorHex = freshSystemHex
+                    settingsManager.accentColorHex = SYSTEM_COLOR_MARKER
                 },
                 onAccentColorSelect = { hex -> settingsManager.accentColorHex = hex },
                 onCornerRadiusSelect = { radius -> settingsManager.cardCornerRadiusDp = radius }
@@ -898,7 +897,15 @@ private fun AdvancedColorPickerDialog(
     onDismiss: () -> Unit,
     onApply: (String) -> Unit
 ) {
-    var hexInput by remember { mutableStateOf(initialHex) }
+    val context = LocalContext.current
+    var hexInput by remember {
+        val startHex = if (initialHex.equals(SYSTEM_COLOR_MARKER, ignoreCase = true)) {
+            SystemThemeUtils.getSystemAccentHex(context)
+        } else {
+            initialHex
+        }
+        mutableStateOf(startHex)
+    }
     var hueValue by remember { mutableFloatStateOf(180f) }
     var isError by remember { mutableStateOf(false) }
 
