@@ -22,6 +22,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <uses-permission
+        android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:ignore="RequestInstallPackagesPolicy" />
+
     <application
         android:name=".PureClockApp"
         android:enableOnBackInvokedCallback="true"
@@ -186,6 +190,16 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/pureclock_widget_info" />
         </receiver>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <provider
             android:name="androidx.startup.InitializationProvider"

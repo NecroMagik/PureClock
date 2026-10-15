@@ -53,6 +53,19 @@ class SettingsManager private constructor(context: Context) {
     private val prefs: SharedPreferences =
         appContext.getSharedPreferences("pure_clock_settings", Context.MODE_PRIVATE)
 
+    val appVersionName: String by lazy {
+        try {
+            val pkgInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+            pkgInfo.versionName?.removePrefix("v")?.removePrefix("V") ?: "1.35"
+        } catch (_: Exception) {
+            "1.35"
+        }
+    }
+
+    val appVersionDisplay: String by lazy {
+        "v$appVersionName"
+    }
+
     companion object {
         private const val KEY_ANALOG_STYLE = "analog_clock_style"
         private const val KEY_DIGITAL_STYLE = "digital_clock_style"
@@ -158,11 +171,14 @@ class SettingsManager private constructor(context: Context) {
 
     suspend fun checkGooglePlayInAppUpdates(): AppUpdateInfo? {
         val source = getInstallationSource()
+        android.util.Log.d("PureClock_UPDATER", "Проверка Google Play In-App Updates. Источник: $source, текущая версия: $appVersionName")
         if (source != InstallSource.GOOGLE_PLAY && source != InstallSource.SYSTEM_PREBUILT) return null
         return _googlePlayUpdateManager.checkUpdateAvailability()
     }
 
     suspend fun checkRuStoreInAppUpdates(): RuStoreUpdateManager.RuStoreAppInfo? {
+        val source = getInstallationSource()
+        android.util.Log.d("PureClock_UPDATER", "Проверка RuStore Updates. Источник: $source, текущая версия: $appVersionName")
         if (getInstallationSource() != InstallSource.RUSTORE) return null
         return _ruStoreUpdateManager.checkUpdateAvailability()
     }
@@ -374,6 +390,7 @@ class SettingsManager private constructor(context: Context) {
     }
 
     object UpdateChecker {
+        private const val TAG = "PureClock_UPDATER"
         private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/NecroMagik/PureClock/releases"
         const val BETA_BRANCH_URL = "https://github.com/NecroMagik/PureClock/tree/beta"
 
@@ -398,57 +415,146 @@ class SettingsManager private constructor(context: Context) {
 
                 return when {
                     this.letterSuffix == null && other.letterSuffix == null -> 0
+                    // Если номера равны (например 1.35 и 1.35a), версия с буквой считается более свежим патчем/бетой
                     this.letterSuffix != null && other.letterSuffix == null -> 1
                     this.letterSuffix == null && other.letterSuffix != null -> -1
                     else -> this.letterSuffix!!.compareTo(other.letterSuffix!!)
                 }
             }
+
+            override fun toString(): String {
+                return "$major.$iteration${String.format("%01d", minor)}${letterSuffix ?: ""}"
+            }
         }
 
         fun parseVersion(raw: String): ParsedVersion? {
-            val cleaned = raw.trim().removePrefix("v").removePrefix("V")
-            val regex = Regex("""^(\d+)\.(\d)(\d+)([a-zA-Z])?$""")
-            val match = regex.find(cleaned) ?: return null
+            val cleaned = raw.trim()
+                .removePrefix("v")
+                .removePrefix("V")
+                .substringBefore(" ")
+                .substringBefore("-")
+
+            // Поддержка форматов: "1.35", "1.32c", "1.5"
+            val regex = Regex("""^(\d+)\.(\d)(\d*)([a-zA-Z])?$""")
+            val match = regex.find(cleaned)
+            if (match == null) {
+                android.util.Log.w(TAG, "Не удалось распарсить версию из строки: '$raw' (cleaned='$cleaned')")
+                return null
+            }
 
             val major = match.groupValues[1].toIntOrNull() ?: 1
             val iteration = match.groupValues[2].toIntOrNull() ?: 0
-            val minor = match.groupValues[3].toIntOrNull() ?: 0
+            val minorStr = match.groupValues[3]
+            val minor = if (minorStr.isEmpty()) 0 else (minorStr.toIntOrNull() ?: 0)
             val suffix = match.groupValues.getOrNull(4)?.firstOrNull()?.lowercaseChar()
 
             return ParsedVersion(major, iteration, minor, suffix)
         }
 
-        suspend fun checkForBetaUpdates(currentVersion: String): ReleaseInfo? = withContext(Dispatchers.IO) {
+        /**
+         * Универсальная проверка обновлений на GitHub:
+         * Ищет самый свежий релиз (и стабильный, и бета, если allowBeta = true), который выше currentVersion.
+         */
+        suspend fun checkForBetaUpdates(
+            currentVersion: String,
+            allowBeta: Boolean = true
+        ): ReleaseInfo? = withContext(Dispatchers.IO) {
+            android.util.Log.i(TAG, "==> Старт проверки обновлений GitHub. Текущая версия: '$currentVersion', allowBeta=$allowBeta")
+
             try {
-                val currentParsed = parseVersion(currentVersion) ?: return@withContext null
+                val currentParsed = parseVersion(currentVersion)
+                if (currentParsed == null) {
+                    android.util.Log.e(TAG, "!!!! Ошибка: не удалось распарсить текущую версию '$currentVersion'")
+                    return@withContext null
+                }
+                android.util.Log.d(TAG, "Текущая версия распознана как: major=${currentParsed.major}, iter=${currentParsed.iteration}, minor=${currentParsed.minor}, suffix=${currentParsed.letterSuffix}")
 
                 val url = URL(GITHUB_RELEASES_URL)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("Accept", "application/vnd.github.v3+json")
+                    setRequestProperty("User-Agent", "PureClock-Android-Updater")
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                }
 
-                if (connection.responseCode == 200) {
+                val responseCode = connection.responseCode
+                android.util.Log.d(TAG, "Ответ GitHub API: HTTP $responseCode")
+
+                if (responseCode == 200) {
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
                     val jsonArray = JSONArray(response)
+                    android.util.Log.d(TAG, "Найдено релизов в репозитории: ${jsonArray.length()}")
+
+                    var bestCandidate: Pair<ParsedVersion, ReleaseInfo>? = null
 
                     for (i in 0 until jsonArray.length()) {
                         val json = jsonArray.getJSONObject(i)
-                        val tagName = json.getString("tag_name")
+                        val isDraft = json.optBoolean("draft", false)
+                        if (isDraft) continue
+
+                        val tagName = json.optString("tag_name", "")
+                        val isPrerelease = json.optBoolean("prerelease", false)
                         val remoteParsed = parseVersion(tagName) ?: continue
 
-                        val isBeta = remoteParsed.letterSuffix != null
-                        if (isBeta && remoteParsed > currentParsed) {
-                            val assets = json.getJSONArray("assets")
-                            if (assets.length() > 0) {
-                                val downloadUrl = assets.getJSONObject(0).getString("browser_download_url")
-                                val changelog = json.optString("body", "Новая бета-версия доступна!")
-                                return@withContext ReleaseInfo(tagName, downloadUrl, changelog, isBeta = true)
+                        val isBetaRelease = isPrerelease || remoteParsed.letterSuffix != null
+                        android.util.Log.d(TAG, "Релиз [$i]: tag='$tagName', isBeta=$isBetaRelease, compare=${remoteParsed.compareTo(currentParsed)}")
+
+                        // Если бета-канал выключен, пропускаем бета-сборки, но пропускаем вперёд стабильные релизы!
+                        if (!allowBeta && isBetaRelease) {
+                            continue
+                        }
+
+                        if (remoteParsed > currentParsed) {
+                            val assets = json.optJSONArray("assets")
+                            var downloadUrl: String? = null
+
+                            if (assets != null && assets.length() > 0) {
+                                // Ищем .apk среди ассетов или берём первый ассет
+                                for (a in 0 until assets.length()) {
+                                    val assetObj = assets.getJSONObject(a)
+                                    val assetUrl = assetObj.optString("browser_download_url", "")
+                                    if (assetUrl.endsWith(".apk", ignoreCase = true)) {
+                                        downloadUrl = assetUrl
+                                        break
+                                    }
+                                }
+                                if (downloadUrl == null) {
+                                    downloadUrl = assets.getJSONObject(0).optString("browser_download_url")
+                                }
+                            }
+
+                            // Если APK в assets не прикреплён, даём ссылку на страницу самого релиза
+                            if (downloadUrl.isNullOrEmpty()) {
+                                downloadUrl = json.optString("html_url", BETA_BRANCH_URL)
+                            }
+
+                            val changelog = json.optString("body", "Доступна новая версия $tagName!")
+                            val info = ReleaseInfo(
+                                tagName = tagName,
+                                downloadUrl = downloadUrl!!,
+                                body = changelog,
+                                isBeta = isBetaRelease
+                            )
+
+                            if (bestCandidate == null || remoteParsed > bestCandidate.first) {
+                                bestCandidate = remoteParsed to info
                             }
                         }
                     }
+
+                    if (bestCandidate != null) {
+                        android.util.Log.i(TAG, "==> НАЙДЕНО ОБНОВЛЕНИЕ: ${bestCandidate.second.tagName} (${bestCandidate.second.downloadUrl})")
+                        return@withContext bestCandidate.second
+                    } else {
+                        android.util.Log.i(TAG, "==> Обновлений новее '$currentVersion' не найдено.")
+                    }
+                } else {
+                    val errText = connection.errorStream?.bufferedReader()?.use { it.readText() }
+                    android.util.Log.e(TAG, "!!!! Ошибка GitHub API ($responseCode): $errText")
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e(TAG, "!!!! Исключение при проверке обновлений: ${e.message}", e)
             }
             return@withContext null
         }

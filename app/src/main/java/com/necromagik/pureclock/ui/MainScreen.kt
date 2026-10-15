@@ -274,8 +274,16 @@ fun MainScreen(viewModel: AlarmViewModel) {
                             val latestBetaRelease by settingsManager.latestBetaReleaseFlow.collectAsState()
 
                             LaunchedEffect(Unit) {
-                                if (settingsManager.allowBetaUpdates) {
-                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates("1.34")
+                                // Проверяем GitHub как для бета-канала, так и для сборок из GitHub/сторонних источников,
+                                // чтобы старые версии всегда могли подтянуть свежий релиз
+                                val source = settingsManager.getInstallationSource()
+                                val shouldCheckGithub =
+                                    settingsManager.allowBetaUpdates || !source.isOfficial
+                                if (shouldCheckGithub) {
+                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates(
+                                        currentVersion = settingsManager.appVersionName,
+                                        allowBeta = settingsManager.allowBetaUpdates || !source.isOfficial
+                                    )
                                     settingsManager.setBetaUpdateInfo(release)
                                 }
                             }
@@ -549,8 +557,13 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     }
                                                     Spacer(modifier = Modifier.width(12.dp))
                                                     Column {
+                                                        val releaseTitle = if (latestBetaRelease?.isBeta == true) {
+                                                            "Доступна новая бета ${latestBetaRelease?.tagName ?: ""}"
+                                                        } else {
+                                                            "Доступно новое обновление ${latestBetaRelease?.tagName ?: ""}"
+                                                        }
                                                         Text(
-                                                            text = "Вышла бета ${latestBetaRelease?.tagName ?: ""}",
+                                                            text = releaseTitle,
                                                             color = MaterialTheme.colorScheme.onSurface,
                                                             fontWeight = FontWeight.Bold,
                                                             fontSize = 14.sp

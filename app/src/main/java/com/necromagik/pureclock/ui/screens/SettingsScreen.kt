@@ -4,6 +4,7 @@ import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -47,9 +48,8 @@ import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
-import androidx.activity.compose.BackHandler
-
-private const val APP_VERSION = "1.32e"
+import com.necromagik.pureclock.util.ApkUpdateInstaller
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,9 +57,6 @@ fun SettingsScreen(
     onBackClick: () -> Unit = {},
     onNavigateToThemeEngine: () -> Unit = {}
 ) {
-    var predictiveProgress by remember { mutableFloatStateOf(0f) }
-    var swipeEdgeLeft by remember { mutableStateOf(true) }
-
     BackHandler {
         onBackClick()
     }
@@ -97,6 +94,7 @@ private fun SettingsMainContent(
     val isBetaUpdateAvailable by settingsManager.isBetaUpdateAvailableFlow.collectAsState()
     val latestBetaRelease by settingsManager.latestBetaReleaseFlow.collectAsState()
 
+    val appVersion = remember { settingsManager.appVersionName }
     val installSource = remember { settingsManager.getInstallationSource() }
 
     val activeWidgetIds = remember {
@@ -423,72 +421,83 @@ private fun SettingsMainContent(
                 }
             }
 
-            if (!allowBetaUpdates && installSource.isOfficial) {
-                val isPlay = installSource == SettingsManager.InstallSource.GOOGLE_PLAY ||
-                        installSource == SettingsManager.InstallSource.SYSTEM_PREBUILT
-                val isRuStore = installSource == SettingsManager.InstallSource.RUSTORE
+            // ДВОЙНОЙ АПДЕЙТЕР: Маркеты (Google Play / RuStore) + резервный фоллбэк на GitHub Releases
+            val isPlay = installSource == SettingsManager.InstallSource.GOOGLE_PLAY ||
+                    installSource == SettingsManager.InstallSource.SYSTEM_PREBUILT
+            val isRuStore = installSource == SettingsManager.InstallSource.RUSTORE
 
+            if (!allowBetaUpdates && installSource.isOfficial) {
                 item {
                     SettingsClickCard(
                         icon = Icons.Default.SystemUpdate,
                         title = when {
                             playUpdateInfo != null -> "Установить обновление Google Play"
+                            isBetaUpdateAvailable && latestBetaRelease != null -> "Доступна версия ${latestBetaRelease?.tagName}"
                             isPlay -> "Проверить обновление в Google Play"
                             isRuStore -> "Проверить обновление в RuStore"
                             else -> "Проверить обновления"
                         },
                         subtitle = when {
-                            isCheckingStoreUpdates -> "Связь с магазином приложений..."
-                            playUpdateInfo != null -> "Новая версия готова к скачиванию через Play Store"
-                            isPlay -> "Google Play In-App Updates API (Закрытое тестирование)"
-                            isRuStore -> "Проверка через RuStore AppUpdate SDK"
-                            else -> "Текущая версия: $APP_VERSION"
+                            isCheckingStoreUpdates -> "Опрос серверов обновлений..."
+                            playUpdateInfo != null -> "Новая версия готова к установке через Play Store"
+                            isBetaUpdateAvailable && latestBetaRelease != null -> "Найдена новая сборка (нажмите для загрузки)"
+                            isPlay -> "Текущая версия: $appVersion • Google Play API + GitHub"
+                            isRuStore -> "Текущая версия: $appVersion • RuStore SDK + GitHub"
+                            else -> "Текущая версия: $appVersion"
                         },
                         onClick = {
-                            if (isPlay) {
-                                if (playUpdateInfo != null && context is Activity) {
-                                    settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
-                                        activity = context,
-                                        appUpdateInfo = playUpdateInfo!!,
-                                        launcher = playUpdateLauncher,
-                                        updateType = AppUpdateType.FLEXIBLE
-                                    )
-                                } else if (!isCheckingStoreUpdates) {
-                                    isCheckingStoreUpdates = true
-                                    showNoUpdatesToast = false
-                                    coroutineScope.launch {
+                            if (isPlay && playUpdateInfo != null && context is Activity) {
+                                settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
+                                    activity = context,
+                                    appUpdateInfo = playUpdateInfo!!,
+                                    launcher = playUpdateLauncher,
+                                    updateType = AppUpdateType.FLEXIBLE
+                                )
+                            } else if (isBetaUpdateAvailable && latestBetaRelease != null) {
+                                betaUpdateResultDialog = latestBetaRelease
+                            } else if (!isCheckingStoreUpdates) {
+                                isCheckingStoreUpdates = true
+                                showNoUpdatesToast = false
+                                coroutineScope.launch {
+                                    var foundInStore = false
+                                    if (isPlay) {
                                         val info = settingsManager.checkGooglePlayInAppUpdates()
-                                        isCheckingStoreUpdates = false
                                         playUpdateInfo = info
                                         if (info != null && context is Activity) {
+                                            foundInStore = true
                                             settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
                                                 activity = context,
                                                 appUpdateInfo = info,
                                                 launcher = playUpdateLauncher,
                                                 updateType = AppUpdateType.FLEXIBLE
                                             )
-                                        } else if (info == null) {
-                                            showNoUpdatesToast = true
+                                        }
+                                    } else if (isRuStore) {
+                                        val updateInfo = settingsManager.checkRuStoreInAppUpdates()
+                                        if (updateInfo != null) {
+                                            foundInStore = true
+                                            settingsManager.getRuStoreUpdateManager().openStorePage()
                                         }
                                     }
-                                }
-                            } else if (isRuStore) {
-                                if (!isCheckingStoreUpdates) {
-                                    isCheckingStoreUpdates = true
-                                    showNoUpdatesToast = false
-                                    coroutineScope.launch {
-                                        val updateInfo = settingsManager.checkRuStoreInAppUpdates()
-                                        isCheckingStoreUpdates = false
-                                        if (updateInfo != null) {
-                                            settingsManager.getRuStoreUpdateManager().openStorePage()
+
+                                    // Если Маркет еще не раскатил обновление — проверяем стабильные релизы на GitHub
+                                    if (!foundInStore) {
+                                        val ghRelease = SettingsManager.UpdateChecker.checkForBetaUpdates(
+                                            currentVersion = appVersion,
+                                            allowBeta = false
+                                        )
+                                        settingsManager.setBetaUpdateInfo(ghRelease)
+                                        if (ghRelease != null) {
+                                            betaUpdateResultDialog = ghRelease
                                         } else {
                                             showNoUpdatesToast = true
                                         }
                                     }
+                                    isCheckingStoreUpdates = false
                                 }
                             }
                         },
-                        iconTint = if (playUpdateInfo != null) themeConfig.accentColor else Color.Gray,
+                        iconTint = if (playUpdateInfo != null || isBetaUpdateAvailable) themeConfig.accentColor else Color.Gray,
                         shape = cardShape
                     )
                 }
@@ -512,15 +521,15 @@ private fun SettingsMainContent(
                 )
             }
 
-            if (allowBetaUpdates) {
+            if (allowBetaUpdates || !installSource.isOfficial) {
                 item {
                     SettingsClickCard(
                         icon = Icons.Default.Upgrade,
-                        title = if (isBetaUpdateAvailable) "Скачать бета-версию ${latestBetaRelease?.tagName}" else "Проверить бета-обновления",
+                        title = if (isBetaUpdateAvailable) "Скачать обновление ${latestBetaRelease?.tagName}" else "Проверить обновления (GitHub)",
                         subtitle = when {
-                            isCheckingBetaUpdates -> "Связь с GitHub tree/beta..."
-                            isBetaUpdateAvailable -> "Нажмите для загрузки APK"
-                            else -> "Текущая сборка: $APP_VERSION"
+                            isCheckingBetaUpdates -> "Связь с репозиторием GitHub..."
+                            isBetaUpdateAvailable -> "Нажмите для просмотра списка изменений и загрузки APK"
+                            else -> "Текущая сборка: $appVersion"
                         },
                         onClick = {
                             if (isBetaUpdateAvailable && latestBetaRelease != null) {
@@ -529,7 +538,10 @@ private fun SettingsMainContent(
                                 isCheckingBetaUpdates = true
                                 showNoUpdatesToast = false
                                 coroutineScope.launch {
-                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates(APP_VERSION)
+                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates(
+                                        currentVersion = appVersion,
+                                        allowBeta = true
+                                    )
                                     isCheckingBetaUpdates = false
                                     settingsManager.setBetaUpdateInfo(release)
                                     if (release != null) {
@@ -593,7 +605,7 @@ private fun SettingsMainContent(
                                         fontSize = 18.sp
                                     )
                                     Text(
-                                        text = "Версия $APP_VERSION • by NecroMagik",
+                                        text = "Версия $appVersion • by NecroMagik",
                                         color = themeConfig.accentColor,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium
@@ -708,7 +720,10 @@ private fun SettingsMainContent(
                         settingsManager.allowBetaUpdates = true
                         showBetaWarningDialog = false
                         coroutineScope.launch {
-                            val release = SettingsManager.UpdateChecker.checkForBetaUpdates(APP_VERSION)
+                            val release = SettingsManager.UpdateChecker.checkForBetaUpdates(
+                                currentVersion = appVersion,
+                                allowBeta = true
+                            )
                             settingsManager.setBetaUpdateInfo(release)
                         }
                     },
@@ -742,43 +757,139 @@ private fun SettingsMainContent(
     }
 
     betaUpdateResultDialog?.let { release ->
+        var isDownloading by remember(release) { mutableStateOf(false) }
+        var downloadProgress by remember(release) { mutableFloatStateOf(0f) }
+        var downloadedFile by remember(release) { mutableStateOf<File?>(null) }
+        var downloadError by remember(release) { mutableStateOf(false) }
+
         AlertDialog(
-            onDismissRequest = { betaUpdateResultDialog = null },
+            onDismissRequest = {
+                if (!isDownloading) {
+                    betaUpdateResultDialog = null
+                }
+            },
             title = {
+                val titlePrefix = if (release.isBeta) "⚠️ Доступна бета-версия" else "🚀 Доступно обновление"
                 Text(
-                    text = "⚠️ Доступна бета-версия ${release.tagName}",
+                    text = "$titlePrefix ${release.tagName}",
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Column {
+                    if (release.isBeta) {
+                        Text(
+                            text = "Сборка из ветки tree/beta на GitHub. Возможна экспериментальная работа.\n",
+                            fontSize = 12.sp,
+                            color = warningColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                     Text(
-                        text = "Сборка из ветки tree/beta на GitHub. Возможна экспериментальная работа.\n\n",
-                        fontSize = 12.sp,
-                        color = warningColor,
-                        fontWeight = FontWeight.Medium
+                        text = release.body,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(release.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+
+                    if (isDownloading) {
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Загрузка пакета обновления...",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                            Text(
+                                text = "${(downloadProgress * 100).toInt()}%",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = themeConfig.accentColor
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = if (release.isBeta) warningColor else themeConfig.accentColor,
+                            trackColor = Color.Gray.copy(alpha = 0.2f)
+                        )
+                    }
+
+                    if (downloadError) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Не удалось скачать APK напрямую. Попробуйте ещё раз или скачайте через браузер.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             },
             confirmButton = {
+                val isDirectApk = release.downloadUrl.endsWith(".apk", ignoreCase = true)
+
                 Button(
+                    enabled = !isDownloading,
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, release.downloadUrl.toUri())
-                        context.startActivity(intent)
-                        betaUpdateResultDialog = null
+                        // Если файл уже скачан (например, пользователь ходил выдавать разрешение на установку) — сразу ставим!
+                        if (downloadedFile != null && downloadedFile!!.exists()) {
+                            ApkUpdateInstaller.installApk(context, downloadedFile!!)
+                            return@Button
+                        }
+
+                        // Если в релизе прямая ссылка на .apk — качаем в фоне и запускаем установку
+                        if (isDirectApk) {
+                            isDownloading = true
+                            downloadError = false
+                            downloadProgress = 0f
+                            coroutineScope.launch {
+                                val file = ApkUpdateInstaller.downloadApk(
+                                    context = context,
+                                    downloadUrl = release.downloadUrl,
+                                    tagName = release.tagName,
+                                    onProgress = { progress ->
+                                        downloadProgress = progress
+                                    }
+                                )
+                                isDownloading = false
+                                if (file != null) {
+                                    downloadedFile = file
+                                    ApkUpdateInstaller.installApk(context, file)
+                                } else {
+                                    downloadError = true
+                                }
+                            }
+                        } else {
+                            // Фоллбэк на случай, если к релизу на GitHub забыли прикрепить .apk файл
+                            val intent = Intent(Intent.ACTION_VIEW, release.downloadUrl.toUri())
+                            context.startActivity(intent)
+                            betaUpdateResultDialog = null
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = warningColor,
+                        containerColor = if (release.isBeta) warningColor else themeConfig.accentColor,
                         contentColor = Color.Black
                     )
                 ) {
-                    Text("Скачать APK", fontWeight = FontWeight.Bold)
+                    val btnText = when {
+                        isDownloading -> "Скачивание..."
+                        downloadedFile != null -> "Установить"
+                        else -> "Скачать и установить"
+                    }
+                    Text(btnText, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { betaUpdateResultDialog = null }) {
-                    Text("Позже", color = Color.Gray)
+                if (!isDownloading) {
+                    TextButton(onClick = { betaUpdateResultDialog = null }) {
+                        Text("Позже", color = Color.Gray)
+                    }
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -792,15 +903,15 @@ private fun SettingsMainContent(
             title = { Text("Обновления", fontWeight = FontWeight.Bold) },
             text = {
                 val msg = if (allowBetaUpdates) {
-                    "Свежих тестовых сборок на GitHub пока нет. У вас установлена актуальная версия $APP_VERSION."
+                    "Свежих тестовых сборок на GitHub пока нет. У вас установлена актуальная версия $appVersion."
                 } else {
-                    "У вас установлена последняя версия приложения из магазина ($APP_VERSION)."
+                    "У вас установлена последняя версия приложения ($appVersion)."
                 }
                 Text(msg)
             },
             confirmButton = {
                 TextButton(onClick = { showNoUpdatesToast = false }) {
-                    Text("Понятнo", color = themeConfig.accentColor)
+                    Text("Понятно", color = themeConfig.accentColor)
                 }
             },
             containerColor = MaterialTheme.colorScheme.surface,
