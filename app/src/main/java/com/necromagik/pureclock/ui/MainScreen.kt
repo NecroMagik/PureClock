@@ -53,6 +53,7 @@ import com.necromagik.pureclock.ui.screens.DevScreen
 import com.necromagik.pureclock.ui.screens.SettingsScreen
 import com.necromagik.pureclock.ui.screens.StopwatchScreen
 import com.necromagik.pureclock.ui.screens.TimerScreen
+import com.necromagik.pureclock.ui.screens.ScenaryScreen
 import com.necromagik.pureclock.ui.screens.WorldClockScreen
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.ThemeEngineScreen
@@ -75,7 +76,8 @@ enum class ScreenRoute {
     MAIN,
     SETTINGS,
     THEME_ENGINE,
-    DEV
+    DEV,
+    SCENARY
 }
 
 private class NotchedDockShape(
@@ -150,6 +152,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
             }
             currentRoute == ScreenRoute.THEME_ENGINE -> currentRoute = ScreenRoute.SETTINGS
             currentRoute == ScreenRoute.DEV -> currentRoute = ScreenRoute.MAIN
+            currentRoute == ScreenRoute.SCENARY -> currentRoute = ScreenRoute.MAIN
             currentRoute == ScreenRoute.SETTINGS -> currentRoute = ScreenRoute.MAIN
         }
     }
@@ -265,6 +268,12 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
                         ScreenRoute.DEV -> {
                             DevScreen(
+                                onBack = { currentRoute = ScreenRoute.MAIN }
+                            )
+                        }
+
+                        ScreenRoute.SCENARY -> {
+                            ScenaryScreen(
                                 onBack = { currentRoute = ScreenRoute.MAIN }
                             )
                         }
@@ -488,6 +497,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             ClockTab.WORLD_CLOCK -> WorldClockScreen(
                                                 onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
                                                 onOpenDevScreen = { currentRoute = ScreenRoute.DEV },
+                                                onOpenScenaryScreen = { currentRoute = ScreenRoute.SCENARY },
                                                 externalShowAddDialog = showAddCityDialog,
                                                 onDialogDismiss = { showAddCityDialog = false }
                                             )

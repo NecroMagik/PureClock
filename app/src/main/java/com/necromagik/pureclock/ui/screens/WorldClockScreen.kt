@@ -41,6 +41,7 @@ import com.necromagik.pureclock.ui.screens.DevScreen
 fun WorldClockScreen(
     onOpenSettings: () -> Unit = {},
     onOpenDevScreen: () -> Unit = {},
+    onOpenScenaryScreen: () -> Unit = {},
     externalShowAddDialog: Boolean = false,
     onDialogDismiss: () -> Unit = {}
 ) {
@@ -83,7 +84,8 @@ fun WorldClockScreen(
                 onShiftHoursChanged = { newShift ->
                     currentShiftHours = newShift
                 },
-                onSecretCodeTriggered = onOpenDevScreen
+                onSecretCodeTriggered = onOpenDevScreen,
+                onScenaryCodeTriggered = onOpenScenaryScreen
             )
 
             Spacer(modifier = Modifier.height(18.dp))
