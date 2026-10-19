@@ -3,6 +3,7 @@ package com.necromagik.pureclock.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +27,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -33,6 +36,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
@@ -50,10 +54,10 @@ import com.necromagik.pureclock.ui.components.SettingsTopBarIcon
 import com.necromagik.pureclock.ui.screens.AddEditAlarmScreen
 import com.necromagik.pureclock.ui.screens.AlarmListScreen
 import com.necromagik.pureclock.ui.screens.DevScreen
+import com.necromagik.pureclock.ui.screens.ScenaryScreen
 import com.necromagik.pureclock.ui.screens.SettingsScreen
 import com.necromagik.pureclock.ui.screens.StopwatchScreen
 import com.necromagik.pureclock.ui.screens.TimerScreen
-import com.necromagik.pureclock.ui.screens.ScenaryScreen
 import com.necromagik.pureclock.ui.screens.WorldClockScreen
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.ThemeEngineScreen
@@ -69,15 +73,15 @@ enum class ClockTab(val title: String, val tabType: BottomBarTab) {
     ALARM("Будильник", BottomBarTab.ALARM),
     WORLD_CLOCK("Время", BottomBarTab.WORLD_CLOCK),
     TIMER("Таймер", BottomBarTab.TIMER),
-    STOPWATCH("Секундомер", BottomBarTab.STOPWATCH)
+    STOPWATCH("Секундомер", BottomBarTab.STOPWATCH),
+    SCENARY("Сценарии", BottomBarTab.WORLD_CLOCK) // Скрытая вкладка без иконки в док-баре
 }
 
 enum class ScreenRoute {
     MAIN,
     SETTINGS,
     THEME_ENGINE,
-    DEV,
-    SCENARY
+    DEV
 }
 
 private class NotchedDockShape(
@@ -92,10 +96,10 @@ private class NotchedDockShape(
             addRoundRect(
                 androidx.compose.ui.geometry.RoundRect(
                     rect = Rect(0f, 0f, size.width, size.height),
-                    topLeft = androidx.compose.ui.geometry.CornerRadius(cornerPx),
-                    topRight = androidx.compose.ui.geometry.CornerRadius(cornerPx),
-                    bottomLeft = androidx.compose.ui.geometry.CornerRadius(cornerPx),
-                    bottomRight = androidx.compose.ui.geometry.CornerRadius(cornerPx)
+                    topLeft = CornerRadius(cornerPx),
+                    topRight = CornerRadius(cornerPx),
+                    bottomLeft = CornerRadius(cornerPx),
+                    bottomRight = CornerRadius(cornerPx)
                 )
             )
         }
@@ -103,7 +107,7 @@ private class NotchedDockShape(
         val cutoutPath = Path().apply {
             addOval(
                 Rect(
-                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f),
+                    center = Offset(size.width / 2f, 0f),
                     radius = notchRadiusPx
                 )
             )
@@ -124,15 +128,20 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
     val timerViewModel: TimerViewModel = viewModel()
     val stopwatchViewModel: StopwatchViewModel = viewModel()
-    val pagerState = rememberPagerState(initialPage = 0) { ClockTab.entries.size }
+    // В пейджере только 4 основные вкладки (Сценарии скрыты от обычного свайпа)
+    val pagerState = rememberPagerState(initialPage = 0) { 4 }
     val coroutineScope = rememberCoroutineScope()
     val themeConfig = LocalPureClockConfig.current
+
+    // Флаг активности скрытой вкладки "Сценарии" на общем экране
+    var isScenaryTabActive by remember { mutableStateOf(false) }
 
     var isAddingAlarm by remember { mutableStateOf(false) }
     var editingAlarm by remember { mutableStateOf<AlarmEntity?>(null) }
     var showAddCityDialog by remember { mutableStateOf(false) }
 
     var onTimerAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var onScenaryAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val isStopwatchRunning by stopwatchViewModel.isRunning.collectAsState()
     val stopwatchElapsed by stopwatchViewModel.elapsedMillis.collectAsState()
@@ -142,7 +151,10 @@ fun MainScreen(viewModel: AlarmViewModel) {
     var isUpdateBubbleDismissed by remember { mutableStateOf(false) }
 
     // Единый центральный обработчик жеста "Назад" для всей навигации
-    val isCustomBackEnabled = currentRoute != ScreenRoute.MAIN || isAddingAlarm || editingAlarm != null
+    val isCustomBackEnabled = currentRoute != ScreenRoute.MAIN ||
+            isAddingAlarm ||
+            editingAlarm != null ||
+            isScenaryTabActive
 
     BackHandler(enabled = isCustomBackEnabled) {
         when {
@@ -152,8 +164,8 @@ fun MainScreen(viewModel: AlarmViewModel) {
             }
             currentRoute == ScreenRoute.THEME_ENGINE -> currentRoute = ScreenRoute.SETTINGS
             currentRoute == ScreenRoute.DEV -> currentRoute = ScreenRoute.MAIN
-            currentRoute == ScreenRoute.SCENARY -> currentRoute = ScreenRoute.MAIN
             currentRoute == ScreenRoute.SETTINGS -> currentRoute = ScreenRoute.MAIN
+            isScenaryTabActive -> isScenaryTabActive = false
         }
     }
 
@@ -272,19 +284,17 @@ fun MainScreen(viewModel: AlarmViewModel) {
                             )
                         }
 
-                        ScreenRoute.SCENARY -> {
-                            ScenaryScreen(
-                                onBack = { currentRoute = ScreenRoute.MAIN }
-                            )
-                        }
-
                         ScreenRoute.MAIN -> {
                             val isBetaUpdateAvailable by settingsManager.isBetaUpdateAvailableFlow.collectAsState()
                             val latestBetaRelease by settingsManager.latestBetaReleaseFlow.collectAsState()
 
+                            val activeTab = if (isScenaryTabActive) {
+                                ClockTab.SCENARY
+                            } else {
+                                ClockTab.entries[pagerState.currentPage]
+                            }
+
                             LaunchedEffect(Unit) {
-                                // Проверяем GitHub как для бета-канала, так и для сборок из GitHub/сторонних источников,
-                                // чтобы старые версии всегда могли подтянуть свежий релиз
                                 val source = settingsManager.getInstallationSource()
                                 val shouldCheckGithub =
                                     settingsManager.allowBetaUpdates || !source.isOfficial
@@ -302,7 +312,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                     .fillMaxSize()
                                     .statusBarsPadding(),
                                 topBar = {
-                                    val currentTab = ClockTab.entries[pagerState.currentPage]
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -311,7 +320,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = currentTab.title,
+                                            text = activeTab.title,
                                             style = MaterialTheme.typography.titleLarge,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -354,14 +363,20 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             ) {
                                                 NavTabItem3D(
                                                     tab = ClockTab.ALARM,
-                                                    isSelected = pagerState.currentPage == 0,
-                                                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
+                                                    isSelected = !isScenaryTabActive && pagerState.currentPage == 0,
+                                                    onClick = {
+                                                        isScenaryTabActive = false
+                                                        coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                                                    },
                                                     modifier = Modifier.weight(1f)
                                                 )
                                                 NavTabItem3D(
                                                     tab = ClockTab.WORLD_CLOCK,
-                                                    isSelected = pagerState.currentPage == 1,
-                                                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
+                                                    isSelected = !isScenaryTabActive && pagerState.currentPage == 1,
+                                                    onClick = {
+                                                        isScenaryTabActive = false
+                                                        coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                                                    },
                                                     modifier = Modifier.weight(1f)
                                                 )
 
@@ -369,21 +384,26 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
                                                 NavTabItem3D(
                                                     tab = ClockTab.TIMER,
-                                                    isSelected = pagerState.currentPage == 2,
-                                                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
+                                                    isSelected = !isScenaryTabActive && pagerState.currentPage == 2,
+                                                    onClick = {
+                                                        isScenaryTabActive = false
+                                                        coroutineScope.launch { pagerState.animateScrollToPage(2) }
+                                                    },
                                                     modifier = Modifier.weight(1f)
                                                 )
                                                 NavTabItem3D(
                                                     tab = ClockTab.STOPWATCH,
-                                                    isSelected = pagerState.currentPage == 3,
-                                                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(3) } },
+                                                    isSelected = !isScenaryTabActive && pagerState.currentPage == 3,
+                                                    onClick = {
+                                                        isScenaryTabActive = false
+                                                        coroutineScope.launch { pagerState.animateScrollToPage(3) }
+                                                    },
                                                     modifier = Modifier.weight(1f)
                                                 )
                                             }
                                         }
 
-                                        val currentTab = ClockTab.entries[pagerState.currentPage]
-                                        val isStopwatchTab = currentTab == ClockTab.STOPWATCH
+                                        val isStopwatchTab = activeTab == ClockTab.STOPWATCH
 
                                         AnimatedVisibility(
                                             visible = isStopwatchTab && (stopwatchElapsed > 0 && !isStopwatchRunning),
@@ -435,20 +455,15 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             }
                                         }
 
-                                        val fabIcon = when (currentTab) {
-                                            ClockTab.ALARM -> Icons.Default.Add
-                                            ClockTab.WORLD_CLOCK -> Icons.Default.Search
-                                            ClockTab.TIMER -> Icons.Default.HourglassEmpty
-                                            ClockTab.STOPWATCH -> if (isStopwatchRunning) Icons.Default.Pause else Icons.Default.PlayArrow
-                                        }
-
+                                        // ЦЕНТРАЛЬНАЯ КНОПКА ДЕЙСТВИЯ (Включая логику для вкладки Сценарии)
                                         FloatingActionButton(
                                             onClick = {
-                                                when (currentTab) {
+                                                when (activeTab) {
                                                     ClockTab.ALARM -> isAddingAlarm = true
                                                     ClockTab.WORLD_CLOCK -> showAddCityDialog = true
                                                     ClockTab.TIMER -> onTimerAction?.invoke()
                                                     ClockTab.STOPWATCH -> stopwatchViewModel.toggleStartPause()
+                                                    ClockTab.SCENARY -> onScenaryAction?.invoke()
                                                 }
                                             },
                                             containerColor = MaterialTheme.colorScheme.primary,
@@ -460,15 +475,39 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                 .bounceClick()
                                         ) {
                                             AnimatedContent(
-                                                targetState = fabIcon,
+                                                targetState = Pair(activeTab, isStopwatchRunning),
                                                 transitionSpec = { scaleIn() + fadeIn() togetherWith scaleOut() + fadeOut() },
                                                 label = "FabIconTransition"
-                                            ) { icon ->
-                                                Icon(
-                                                    imageVector = icon,
-                                                    contentDescription = "Действие",
-                                                    modifier = Modifier.size(26.dp)
-                                                )
+                                            ) { (tab, swRunning) ->
+                                                when (tab) {
+                                                    ClockTab.SCENARY -> {
+                                                        ScenaryDocumentPlusIcon(
+                                                            accentColor = MaterialTheme.colorScheme.primary,
+                                                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                                                            modifier = Modifier.size(28.dp)
+                                                        )
+                                                    }
+                                                    ClockTab.ALARM -> Icon(
+                                                        imageVector = Icons.Default.Add,
+                                                        contentDescription = "Добавить будильник",
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                    ClockTab.WORLD_CLOCK -> Icon(
+                                                        imageVector = Icons.Default.Search,
+                                                        contentDescription = "Поиск города",
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                    ClockTab.TIMER -> Icon(
+                                                        imageVector = Icons.Default.HourglassEmpty,
+                                                        contentDescription = "Новый таймер",
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                    ClockTab.STOPWATCH -> Icon(
+                                                        imageVector = if (swRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                        contentDescription = "Старт/Пауза",
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -480,40 +519,60 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         .fillMaxSize()
                                         .padding(paddingValues)
                                 ) {
-                                    HorizontalPager(
-                                        state = pagerState,
-                                        modifier = Modifier.fillMaxSize()
-                                    ) { page ->
-                                        when (ClockTab.entries[page]) {
-                                            ClockTab.ALARM -> AlarmListScreen(
-                                                alarms = alarms,
-                                                onToggleAlarm = { alarm, isEnabled -> viewModel.toggleAlarm(alarm, isEnabled) },
-                                                onSkipNextAlarm = { alarm, skippedMillis -> viewModel.skipNextOccurrence(alarm, skippedMillis) },
-                                                onDeleteAlarms = { toDelete -> toDelete.forEach { alarm -> viewModel.deleteAlarm(alarm) } },
-                                                onAddAlarmClick = { isAddingAlarm = true },
-                                                onEditAlarmClick = { alarm -> editingAlarm = alarm }
+                                    // Скрытая вкладка "Сценарии" отображается поверх HorizontalPager при активации
+                                    AnimatedContent(
+                                        targetState = isScenaryTabActive,
+                                        transitionSpec = {
+                                            (fadeIn(tween(260)) + scaleIn(initialScale = 0.95f))
+                                                .togetherWith(fadeOut(tween(200)) + scaleOut(targetScale = 0.95f))
+                                        },
+                                        label = "ScenaryTabSwitch"
+                                    ) { showScenary ->
+                                        if (showScenary) {
+                                            ScenaryScreen(
+                                                onRegisterFabAction = { action ->
+                                                    onScenaryAction = action
+                                                }
                                             )
+                                        } else {
+                                            HorizontalPager(
+                                                state = pagerState,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) { page ->
+                                                when (ClockTab.entries[page]) {
+                                                    ClockTab.ALARM -> AlarmListScreen(
+                                                        alarms = alarms,
+                                                        onToggleAlarm = { alarm, isEnabled -> viewModel.toggleAlarm(alarm, isEnabled) },
+                                                        onSkipNextAlarm = { alarm, skippedMillis -> viewModel.skipNextOccurrence(alarm, skippedMillis) },
+                                                        onDeleteAlarms = { toDelete -> toDelete.forEach { alarm -> viewModel.deleteAlarm(alarm) } },
+                                                        onAddAlarmClick = { isAddingAlarm = true },
+                                                        onEditAlarmClick = { alarm -> editingAlarm = alarm }
+                                                    )
 
-                                            ClockTab.WORLD_CLOCK -> WorldClockScreen(
-                                                onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
-                                                onOpenDevScreen = { currentRoute = ScreenRoute.DEV },
-                                                onOpenScenaryScreen = { currentRoute = ScreenRoute.SCENARY },
-                                                externalShowAddDialog = showAddCityDialog,
-                                                onDialogDismiss = { showAddCityDialog = false }
-                                            )
+                                                    ClockTab.WORLD_CLOCK -> WorldClockScreen(
+                                                        onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
+                                                        onOpenDevScreen = { currentRoute = ScreenRoute.DEV },
+                                                        onOpenScenaryScreen = { isScenaryTabActive = true },
+                                                        externalShowAddDialog = showAddCityDialog,
+                                                        onDialogDismiss = { showAddCityDialog = false }
+                                                    )
 
-                                            ClockTab.TIMER -> {
-                                                TimerScreen(
-                                                    timerViewModel = timerViewModel,
-                                                    onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
-                                                    onTimerStateChanged = { _, action ->
-                                                        onTimerAction = action
+                                                    ClockTab.TIMER -> {
+                                                        TimerScreen(
+                                                            timerViewModel = timerViewModel,
+                                                            onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
+                                                            onTimerStateChanged = { _, action ->
+                                                                onTimerAction = action
+                                                            }
+                                                        )
                                                     }
-                                                )
-                                            }
 
-                                            ClockTab.STOPWATCH -> {
-                                                StopwatchScreen(stopwatchViewModel = stopwatchViewModel)
+                                                    ClockTab.STOPWATCH -> {
+                                                        StopwatchScreen(stopwatchViewModel = stopwatchViewModel)
+                                                    }
+
+                                                    ClockTab.SCENARY -> {}
+                                                }
                                             }
                                         }
                                     }
@@ -609,6 +668,126 @@ fun MainScreen(viewModel: AlarmViewModel) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Кастомная иконка для центральной кнопки вкладки "Сценарии":
+ * - Основной фон кнопки — акцент системы (accentColor)
+ * - Иконка файла (документа) с имитацией строк текста (линии)
+ * - Справа-сверху аккуратно вписан кружок цвета акцента системы с тонкой контрастной окантовкой
+ * - Внутри кружка знак "+"
+ */
+@Composable
+private fun ScenaryDocumentPlusIcon(
+    accentColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        // 1. Тело документа (листа) со скругленными углами
+        val docLeft = w * 0.14f
+        val docTop = h * 0.14f
+        val docWidth = w * 0.62f
+        val docHeight = h * 0.74f
+        val docCorner = w * 0.12f
+
+        val docPath = Path().apply {
+            addRoundRect(
+                androidx.compose.ui.geometry.RoundRect(
+                    rect = Rect(
+                        offset = Offset(docLeft, docTop),
+                        size = Size(docWidth, docHeight)
+                    ),
+                    cornerRadius = CornerRadius(docCorner, docCorner)
+                )
+            )
+        }
+
+        // Центр и радиус бейджа-кружка справа-сверху
+        val badgeCenter = Offset(w * 0.74f, h * 0.24f)
+        val badgeRadius = w * 0.21f
+        val cutoutRadius = badgeRadius + w * 0.045f
+
+        // Вырезаем аккуратную лунку в правом верхнем углу документа под кружок "+"
+        val cutoutPath = Path().apply {
+            addOval(Rect(center = badgeCenter, radius = cutoutRadius))
+        }
+        val finalDocPath = Path.combine(PathOperation.Difference, docPath, cutoutPath)
+
+        drawPath(
+            path = finalDocPath,
+            color = contentColor
+        )
+
+        // 2. Имитация строк текста внутри файла (вырезанные линии цвета акцента)
+        val lineStroke = h * 0.068f
+        val lineStartX = docLeft + docWidth * 0.22f
+        val lineFullEndX = docLeft + docWidth * 0.78f
+        val lineShortEndX = docLeft + docWidth * 0.52f
+
+        // Верхняя короткая строка (слева от кружка)
+        val line1Y = docTop + docHeight * 0.34f
+        drawLine(
+            color = accentColor,
+            start = Offset(lineStartX, line1Y),
+            end = Offset(lineShortEndX, line1Y),
+            strokeWidth = lineStroke,
+            cap = StrokeCap.Round
+        )
+
+        // Средняя длинная строка
+        val line2Y = docTop + docHeight * 0.56f
+        drawLine(
+            color = accentColor,
+            start = Offset(lineStartX, line2Y),
+            end = Offset(lineFullEndX, line2Y),
+            strokeWidth = lineStroke,
+            cap = StrokeCap.Round
+        )
+
+        // Нижняя строка
+        val line3Y = docTop + docHeight * 0.76f
+        drawLine(
+            color = accentColor,
+            start = Offset(lineStartX, line3Y),
+            end = Offset(lineFullEndX * 0.92f, line3Y),
+            strokeWidth = lineStroke,
+            cap = StrokeCap.Round
+        )
+
+        // 3. Кружок справа-сверху: тонкий контрастный ободок + заливка акцентом системы
+        drawCircle(
+            color = contentColor,
+            radius = badgeRadius,
+            center = badgeCenter
+        )
+        drawCircle(
+            color = accentColor,
+            radius = badgeRadius * 0.80f,
+            center = badgeCenter
+        )
+
+        // 4. Знак "+" внутри кружка
+        val plusHalfArm = badgeRadius * 0.42f
+        val plusStroke = w * 0.065f
+        drawLine(
+            color = contentColor,
+            start = Offset(badgeCenter.x - plusHalfArm, badgeCenter.y),
+            end = Offset(badgeCenter.x + plusHalfArm, badgeCenter.y),
+            strokeWidth = plusStroke,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = contentColor,
+            start = Offset(badgeCenter.x, badgeCenter.y - plusHalfArm),
+            end = Offset(badgeCenter.x, badgeCenter.y + plusHalfArm),
+            strokeWidth = plusStroke,
+            cap = StrokeCap.Round
+        )
     }
 }
 

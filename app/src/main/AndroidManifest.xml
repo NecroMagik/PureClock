@@ -22,6 +22,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- ОТКЛЮЧИТЬ ПЕРЕД ПУБЛИКАЦИЕЙ В МАРКЕТЫ  -->
     <uses-permission
         android:name="android.permission.REQUEST_INSTALL_PACKAGES"
         tools:ignore="RequestInstallPackagesPolicy" />
