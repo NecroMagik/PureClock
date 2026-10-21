@@ -67,6 +67,19 @@ class SettingsManager private constructor(context: Context) {
         "v$appVersionName"
     }
 
+    private val _ifRelease = MutableStateFlow(prefs.getInt(KEY_IF_RELEASE, 0))
+    val ifReleaseFlow: StateFlow<Int> = _ifRelease.asStateFlow()
+
+    var ifRelease: Int
+        get() = _ifRelease.value
+        set(value) {
+            _ifRelease.value = value
+            prefs.edit().putInt(KEY_IF_RELEASE, value).apply()
+        }
+
+    val isScenaryPublic: Boolean
+        get() = ifRelease == 1
+
     companion object {
         private const val KEY_ANALOG_STYLE = "analog_clock_style"
         private const val KEY_DIGITAL_STYLE = "digital_clock_style"
@@ -76,10 +89,11 @@ class SettingsManager private constructor(context: Context) {
         private const val KEY_CARD_CORNER_RADIUS = "card_corner_radius"
         private const val KEY_SAVED_CITY_IDS = "saved_city_ids"
         private const val KEY_ALLOW_BETA_UPDATES = "allow_beta_updates"
-
         private const val KEY_3D_EFFECTS = "is_3d_effects_enabled"
         private const val KEY_NEON_GLOW = "is_neon_glow_enabled"
         private const val KEY_DEPTH_INTENSITY = "depth_intensity_dp"
+        private const val KEY_IF_RELEASE = "if_release_scenary_flag"
+        private const val KEY_START_MAIN_TAB = "start_main_tab_index"
 
         @Volatile
         private var INSTANCE: SettingsManager? = null
@@ -158,6 +172,16 @@ class SettingsManager private constructor(context: Context) {
 
     private val _latestBetaRelease = MutableStateFlow<UpdateChecker.ReleaseInfo?>(null)
     val latestBetaReleaseFlow: StateFlow<UpdateChecker.ReleaseInfo?> = _latestBetaRelease.asStateFlow()
+
+    private val _startMainTab = MutableStateFlow(prefs.getInt(KEY_START_MAIN_TAB, 0))
+    val startMainTabFlow: StateFlow<Int> = _startMainTab.asStateFlow()
+
+    var startMainTab: Int
+        get() = _startMainTab.value
+        set(value) {
+            _startMainTab.value = value
+            prefs.edit().putInt(KEY_START_MAIN_TAB, value).apply()
+        }
 
     // Приватные поля исключают коллизию сигнатур в байт-коде
     private val _googlePlayUpdateManager by lazy {

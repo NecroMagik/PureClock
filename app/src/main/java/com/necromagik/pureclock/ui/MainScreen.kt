@@ -1,5 +1,6 @@
 package com.necromagik.pureclock.ui
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -65,6 +66,8 @@ import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.ui.viewmodel.AlarmViewModel
 import com.necromagik.pureclock.ui.viewmodel.StopwatchViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
+import com.necromagik.pureclock.ui.components.ScenaryPostTriggerDialog
+import com.necromagik.pureclock.util.ScenaryExecutor
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.ZoneId
@@ -74,7 +77,7 @@ enum class ClockTab(val title: String, val tabType: BottomBarTab) {
     WORLD_CLOCK("Время", BottomBarTab.WORLD_CLOCK),
     TIMER("Таймер", BottomBarTab.TIMER),
     STOPWATCH("Секундомер", BottomBarTab.STOPWATCH),
-    SCENARY("Сценарии", BottomBarTab.WORLD_CLOCK) // Скрытая вкладка без иконки в док-баре
+    SCENARY("Сценарии", BottomBarTab.WORLD_CLOCK)
 }
 
 enum class ScreenRoute {
@@ -125,15 +128,18 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
     val context = LocalContext.current
     val settingsManager = remember { SettingsManager.getInstance(context) }
+    val ifRelease by settingsManager.ifReleaseFlow.collectAsState()
+    val startMainTab by settingsManager.startMainTabFlow.collectAsState()
 
     val timerViewModel: TimerViewModel = viewModel()
     val stopwatchViewModel: StopwatchViewModel = viewModel()
-    // В пейджере только 4 основные вкладки (Сценарии скрыты от обычного свайпа)
-    val pagerState = rememberPagerState(initialPage = 0) { 4 }
+
+    // Количество доступных вкладок в пейджере: 4 (или 5, если IfRelease == 1)
+    val maxPages = if (ifRelease == 1) 5 else 4
+    val pagerState = rememberPagerState(initialPage = startMainTab.coerceIn(0, maxPages - 1)) { maxPages }
     val coroutineScope = rememberCoroutineScope()
     val themeConfig = LocalPureClockConfig.current
 
-    // Флаг активности скрытой вкладки "Сценарии" на общем экране
     var isScenaryTabActive by remember { mutableStateOf(false) }
 
     var isAddingAlarm by remember { mutableStateOf(false) }
@@ -148,15 +154,23 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
     val alarms by viewModel.alarms.collectAsState()
 
+    val postTriggerPayload by ScenaryExecutor.activePostTriggerPayload.collectAsState()
+
+    postTriggerPayload?.let { payload ->
+        ScenaryPostTriggerDialog(
+            payload = payload,
+            onDismiss = { ScenaryExecutor.dismissPostTriggerPayload() }
+        )
+    }
+
     var isUpdateBubbleDismissed by remember { mutableStateOf(false) }
 
-    // Единый центральный обработчик жеста "Назад" для всей навигации
-    val isCustomBackEnabled = currentRoute != ScreenRoute.MAIN ||
-            isAddingAlarm ||
-            editingAlarm != null ||
-            isScenaryTabActive
+    // Переменная для обработки двойного тапа "Назад" при нахождении на главной странице
+    var backPressedOnceTime by remember { mutableLongStateOf(0L) }
+    val activity = context as? Activity
 
-    BackHandler(enabled = isCustomBackEnabled) {
+    // Обработка жеста "Назад":
+    BackHandler(enabled = true) {
         when {
             isAddingAlarm || editingAlarm != null -> {
                 isAddingAlarm = false
@@ -165,7 +179,24 @@ fun MainScreen(viewModel: AlarmViewModel) {
             currentRoute == ScreenRoute.THEME_ENGINE -> currentRoute = ScreenRoute.SETTINGS
             currentRoute == ScreenRoute.DEV -> currentRoute = ScreenRoute.MAIN
             currentRoute == ScreenRoute.SETTINGS -> currentRoute = ScreenRoute.MAIN
-            isScenaryTabActive -> isScenaryTabActive = false
+            isScenaryTabActive -> {
+                // Если открыта скрытая вкладка сценариев, возвращаем на главную
+                isScenaryTabActive = false
+            }
+            pagerState.currentPage != startMainTab -> {
+                // Если открыта неглавная вкладка в пейджере — возврат на главную за 1 свайп
+                coroutineScope.launch { pagerState.animateScrollToPage(startMainTab) }
+            }
+            else -> {
+                // Если мы находимся на главной странице: двойной свайп для выхода из приложения
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - backPressedOnceTime < 2000) {
+                    activity?.finish()
+                } else {
+                    backPressedOnceTime = currentTime
+                    android.widget.Toast.makeText(context, "Нажмите ещё раз для выхода", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -291,7 +322,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                             val activeTab = if (isScenaryTabActive) {
                                 ClockTab.SCENARY
                             } else {
-                                ClockTab.entries[pagerState.currentPage]
+                                ClockTab.entries.getOrElse(pagerState.currentPage) { ClockTab.ALARM }
                             }
 
                             LaunchedEffect(Unit) {
@@ -400,6 +431,17 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     },
                                                     modifier = Modifier.weight(1f)
                                                 )
+                                                if (ifRelease == 1) {
+                                                    NavTabItem3D(
+                                                        tab = ClockTab.SCENARY,
+                                                        isSelected = !isScenaryTabActive && pagerState.currentPage == 4,
+                                                        onClick = {
+                                                            isScenaryTabActive = false
+                                                            coroutineScope.launch { pagerState.animateScrollToPage(4) }
+                                                        },
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                }
                                             }
                                         }
 
@@ -455,7 +497,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             }
                                         }
 
-                                        // ЦЕНТРАЛЬНАЯ КНОПКА ДЕЙСТВИЯ (Включая логику для вкладки Сценарии)
+                                        // ЦЕНТРАЛЬНАЯ КНОПКА ДЕЙСТВИЯ
                                         FloatingActionButton(
                                             onClick = {
                                                 when (activeTab) {
@@ -484,7 +526,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                         ScenaryDocumentPlusIcon(
                                                             accentColor = MaterialTheme.colorScheme.primary,
                                                             contentColor = MaterialTheme.colorScheme.onPrimary,
-                                                            modifier = Modifier.size(28.dp)
+                                                            modifier = Modifier.size(30.dp)
                                                         )
                                                     }
                                                     ClockTab.ALARM -> Icon(
@@ -519,7 +561,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                         .fillMaxSize()
                                         .padding(paddingValues)
                                 ) {
-                                    // Скрытая вкладка "Сценарии" отображается поверх HorizontalPager при активации
                                     AnimatedContent(
                                         targetState = isScenaryTabActive,
                                         transitionSpec = {
@@ -539,8 +580,8 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                 state = pagerState,
                                                 modifier = Modifier.fillMaxSize()
                                             ) { page ->
-                                                when (ClockTab.entries[page]) {
-                                                    ClockTab.ALARM -> AlarmListScreen(
+                                                when (page) {
+                                                    0 -> AlarmListScreen(
                                                         alarms = alarms,
                                                         onToggleAlarm = { alarm, isEnabled -> viewModel.toggleAlarm(alarm, isEnabled) },
                                                         onSkipNextAlarm = { alarm, skippedMillis -> viewModel.skipNextOccurrence(alarm, skippedMillis) },
@@ -549,7 +590,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                         onEditAlarmClick = { alarm -> editingAlarm = alarm }
                                                     )
 
-                                                    ClockTab.WORLD_CLOCK -> WorldClockScreen(
+                                                    1 -> WorldClockScreen(
                                                         onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
                                                         onOpenDevScreen = { currentRoute = ScreenRoute.DEV },
                                                         onOpenScenaryScreen = { isScenaryTabActive = true },
@@ -557,21 +598,21 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                         onDialogDismiss = { showAddCityDialog = false }
                                                     )
 
-                                                    ClockTab.TIMER -> {
-                                                        TimerScreen(
-                                                            timerViewModel = timerViewModel,
-                                                            onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
-                                                            onTimerStateChanged = { _, action ->
-                                                                onTimerAction = action
-                                                            }
-                                                        )
-                                                    }
+                                                    2 -> TimerScreen(
+                                                        timerViewModel = timerViewModel,
+                                                        onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
+                                                        onTimerStateChanged = { _, action ->
+                                                            onTimerAction = action
+                                                        }
+                                                    )
 
-                                                    ClockTab.STOPWATCH -> {
-                                                        StopwatchScreen(stopwatchViewModel = stopwatchViewModel)
-                                                    }
-
-                                                    ClockTab.SCENARY -> {}
+                                                    3 -> StopwatchScreen(stopwatchViewModel = stopwatchViewModel)
+                                                    4 -> ScenaryScreen(
+                                                        onRegisterFabAction = { action ->
+                                                            onScenaryAction = action
+                                                        }
+                                                    )
+                                                    else -> {}
                                                 }
                                             }
                                         }
@@ -671,13 +712,6 @@ fun MainScreen(viewModel: AlarmViewModel) {
     }
 }
 
-/**
- * Кастомная иконка для центральной кнопки вкладки "Сценарии":
- * - Основной фон кнопки — акцент системы (accentColor)
- * - Иконка файла (документа) с имитацией строк текста (линии)
- * - Справа-сверху аккуратно вписан кружок цвета акцента системы с тонкой контрастной окантовкой
- * - Внутри кружка знак "+"
- */
 @Composable
 private fun ScenaryDocumentPlusIcon(
     accentColor: Color,
@@ -688,34 +722,35 @@ private fun ScenaryDocumentPlusIcon(
         val w = size.width
         val h = size.height
 
-        // 1. Тело документа (листа) со скругленными углами
-        val docLeft = w * 0.14f
-        val docTop = h * 0.14f
-        val docWidth = w * 0.62f
-        val docHeight = h * 0.74f
-        val docCorner = w * 0.12f
+        val docLeft = w * 0.12f
+        val docTop = h * 0.18f
+        val docRight = w * 0.76f
+        val docBottom = h * 0.90f
+        val docWidth = docRight - docLeft
+        val docHeight = docBottom - docTop
+        val docCorner = w * 0.14f
 
         val docPath = Path().apply {
             addRoundRect(
                 androidx.compose.ui.geometry.RoundRect(
                     rect = Rect(
-                        offset = Offset(docLeft, docTop),
-                        size = Size(docWidth, docHeight)
+                        left = docLeft,
+                        top = docTop,
+                        right = docRight,
+                        bottom = docBottom
                     ),
                     cornerRadius = CornerRadius(docCorner, docCorner)
                 )
             )
         }
 
-        // Центр и радиус бейджа-кружка справа-сверху
-        val badgeCenter = Offset(w * 0.74f, h * 0.24f)
-        val badgeRadius = w * 0.21f
-        val cutoutRadius = badgeRadius + w * 0.045f
+        val badgeCenter = Offset(w * 0.73f, h * 0.27f)
+        val cutoutRadius = w * 0.25f
 
-        // Вырезаем аккуратную лунку в правом верхнем углу документа под кружок "+"
         val cutoutPath = Path().apply {
             addOval(Rect(center = badgeCenter, radius = cutoutRadius))
         }
+
         val finalDocPath = Path.combine(PathOperation.Difference, docPath, cutoutPath)
 
         drawPath(
@@ -723,14 +758,12 @@ private fun ScenaryDocumentPlusIcon(
             color = contentColor
         )
 
-        // 2. Имитация строк текста внутри файла (вырезанные линии цвета акцента)
-        val lineStroke = h * 0.068f
+        val lineStroke = h * 0.082f
         val lineStartX = docLeft + docWidth * 0.22f
+        val lineShortEndX = docLeft + docWidth * 0.50f
         val lineFullEndX = docLeft + docWidth * 0.78f
-        val lineShortEndX = docLeft + docWidth * 0.52f
 
-        // Верхняя короткая строка (слева от кружка)
-        val line1Y = docTop + docHeight * 0.34f
+        val line1Y = docTop + docHeight * 0.33f
         drawLine(
             color = accentColor,
             start = Offset(lineStartX, line1Y),
@@ -739,7 +772,6 @@ private fun ScenaryDocumentPlusIcon(
             cap = StrokeCap.Round
         )
 
-        // Средняя длинная строка
         val line2Y = docTop + docHeight * 0.56f
         drawLine(
             color = accentColor,
@@ -749,31 +781,18 @@ private fun ScenaryDocumentPlusIcon(
             cap = StrokeCap.Round
         )
 
-        // Нижняя строка
-        val line3Y = docTop + docHeight * 0.76f
+        val line3Y = docTop + docHeight * 0.78f
         drawLine(
             color = accentColor,
             start = Offset(lineStartX, line3Y),
-            end = Offset(lineFullEndX * 0.92f, line3Y),
+            end = Offset(lineFullEndX, line3Y),
             strokeWidth = lineStroke,
             cap = StrokeCap.Round
         )
 
-        // 3. Кружок справа-сверху: тонкий контрастный ободок + заливка акцентом системы
-        drawCircle(
-            color = contentColor,
-            radius = badgeRadius,
-            center = badgeCenter
-        )
-        drawCircle(
-            color = accentColor,
-            radius = badgeRadius * 0.80f,
-            center = badgeCenter
-        )
+        val plusHalfArm = cutoutRadius * 0.48f
+        val plusStroke = w * 0.085f
 
-        // 4. Знак "+" внутри кружка
-        val plusHalfArm = badgeRadius * 0.42f
-        val plusStroke = w * 0.065f
         drawLine(
             color = contentColor,
             start = Offset(badgeCenter.x - plusHalfArm, badgeCenter.y),

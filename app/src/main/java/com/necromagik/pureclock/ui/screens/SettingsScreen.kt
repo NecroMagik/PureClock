@@ -7,6 +7,8 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -45,10 +48,10 @@ import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.components.SwitchIconType
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
+import com.necromagik.pureclock.util.ApkUpdateInstaller
 import com.necromagik.pureclock.widget.PureClockWidgetProvider
 import com.necromagik.pureclock.widget.WidgetConfigActivity
 import kotlinx.coroutines.launch
-import com.necromagik.pureclock.util.ApkUpdateInstaller
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,6 +122,9 @@ private fun SettingsMainContent(
     var betaUpdateResultDialog by remember { mutableStateOf<SettingsManager.UpdateChecker.ReleaseInfo?>(null) }
     var showNoUpdatesToast by remember { mutableStateOf(false) }
 
+    var showStartMainTabDialog by remember { mutableStateOf(false) }
+    val startMainTab by settingsManager.startMainTabFlow.collectAsState()
+
     val warningColor = Color(0xFFFF9800)
     val pureOsBlueColor = Color(0xFF2979FF)
 
@@ -160,17 +166,33 @@ private fun SettingsMainContent(
             contentPadding = PaddingValues(vertical = 14.dp)
         ) {
             item { SettingsHeader("Оформление") }
+
+            // 1. Главная страница теперь стоит первой (на месте настроек тем)
+            item {
+                val mainTabTitles = listOf("Будильник", "Мировое время", "Таймер", "Секундомер") +
+                        if (settingsManager.ifRelease == 1) listOf("Сценарии") else emptyList()
+
+                SettingsClickCard(
+                    icon = Icons.Default.Home,
+                    title = "Главная страница",
+                    subtitle = mainTabTitles.getOrNull(startMainTab) ?: "Будильник",
+                    onClick = { showStartMainTabDialog = true },
+                    shape = cardShape
+                )
+            }
+
+            // 2. Theme Engine
             item {
                 SettingsClickCard(
                     icon = Icons.Default.Palette,
                     title = "Theme Engine",
                     subtitle = "Цветовые акценты, Depth 3D, стиль элементов",
                     onClick = onOpenThemeEngine,
-                    iconTint = themeConfig.accentColor,
                     shape = cardShape
                 )
             }
 
+            // 3. Конструктор виджета
             item {
                 SettingsClickCard(
                     icon = Icons.Default.Widgets,
@@ -187,7 +209,6 @@ private fun SettingsMainContent(
                         }
                         context.startActivity(intent)
                     },
-                    iconTint = if (hasActiveWidget) themeConfig.accentColor else Color.Gray,
                     shape = cardShape
                 )
             }
@@ -204,7 +225,7 @@ private fun SettingsMainContent(
             }
             item {
                 SettingsSwitchCard(
-                    icon = Icons.AutoMirrored.Filled.VolumeUp,
+                    icon = if (isVolumeRamp) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                     title = "Плавное нарастание громкости",
                     subtitle = "Громкость сигнала увеличивается постепенно",
                     isChecked = isVolumeRamp,
@@ -233,7 +254,7 @@ private fun SettingsMainContent(
             }
             item {
                 SettingsClickCard(
-                    icon = Icons.Default.NotificationsActive,
+                    icon = if (upcomingNotice > 0) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
                     title = "Предварительное уведомление",
                     subtitle = if (upcomingNotice > 0)
                         "За $upcomingNotice мин до сигнала"
@@ -260,7 +281,7 @@ private fun SettingsMainContent(
             item { SettingsHeader("Мировое время") }
             item {
                 SettingsSwitchCard(
-                    icon = Icons.Default.Schedule,
+                    icon = if (is24Hour) Icons.Default.Schedule else Icons.Default.HistoryToggleOff,
                     title = "24-часовой формат",
                     subtitle = if (is24Hour) "14:00" else "02:00 PM",
                     isChecked = is24Hour,
@@ -279,7 +300,7 @@ private fun SettingsMainContent(
             }
             item {
                 SettingsSwitchCard(
-                    icon = Icons.Default.Vibration,
+                    icon = if (isClockHaptics) Icons.Default.Vibration else Icons.Default.Smartphone,
                     title = "Тактильный отклик",
                     subtitle = "Вибрация при вращении стрелки",
                     isChecked = isClockHaptics,
@@ -291,7 +312,7 @@ private fun SettingsMainContent(
             item { SettingsHeader("Таймер и Секундомер") }
             item {
                 SettingsSwitchCard(
-                    icon = Icons.Default.HourglassBottom,
+                    icon = if (isTimerVibrate) Icons.Default.HourglassBottom else Icons.Default.HourglassEmpty,
                     title = "Вибрация таймера",
                     subtitle = "Вибрация по окончании отсчета",
                     isChecked = isTimerVibrate,
@@ -301,7 +322,7 @@ private fun SettingsMainContent(
             }
             item {
                 SettingsSwitchCard(
-                    icon = Icons.Default.Timer,
+                    icon = if (isStopwatchLapVibrate) Icons.Default.Timer else Icons.Default.TimerOff,
                     title = "Отклик кругов секундомера",
                     subtitle = "Вибрация при нажатии кнопки «Круг»",
                     isChecked = isStopwatchLapVibrate,
@@ -497,7 +518,6 @@ private fun SettingsMainContent(
                                 }
                             }
                         },
-                        iconTint = if (playUpdateInfo != null || isBetaUpdateAvailable) themeConfig.accentColor else Color.Gray,
                         shape = cardShape
                     )
                 }
@@ -552,7 +572,6 @@ private fun SettingsMainContent(
                                 }
                             }
                         },
-                        iconTint = if (isBetaUpdateAvailable) themeConfig.accentColor else Color.Gray,
                         shape = cardShape
                     )
                 }
@@ -615,7 +634,7 @@ private fun SettingsMainContent(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                 contentDescription = null,
-                                tint = Color.Gray,
+                                tint = themeConfig.accentColor,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -837,13 +856,11 @@ private fun SettingsMainContent(
                 Button(
                     enabled = !isDownloading,
                     onClick = {
-                        // Если файл уже скачан (например, пользователь ходил выдавать разрешение на установку) — сразу ставим!
                         if (downloadedFile != null && downloadedFile!!.exists()) {
                             ApkUpdateInstaller.installApk(context, downloadedFile!!)
                             return@Button
                         }
 
-                        // Если в релизе прямая ссылка на .apk — качаем в фоне и запускаем установку
                         if (isDirectApk) {
                             isDownloading = true
                             downloadError = false
@@ -866,7 +883,6 @@ private fun SettingsMainContent(
                                 }
                             }
                         } else {
-                            // Фоллбэк на случай, если к релизу на GitHub забыли прикрепить .apk файл
                             val intent = Intent(Intent.ACTION_VIEW, release.downloadUrl.toUri())
                             context.startActivity(intent)
                             betaUpdateResultDialog = null
@@ -1006,6 +1022,28 @@ private fun SettingsMainContent(
             onDismiss = { showAlarmPickerStyleDialog = false }
         )
     }
+
+    if (showStartMainTabDialog) {
+        val options = mutableListOf(
+            0 to "Будильник",
+            1 to "Мировое время",
+            2 to "Таймер",
+            3 to "Секундомер"
+        )
+        if (settingsManager.ifRelease == 1) {
+            options.add(4 to "Сценарии")
+        }
+        SingleChoiceDialog(
+            title = "Выбор главной страницы",
+            options = options,
+            selectedValue = startMainTab,
+            onSelect = {
+                showStartMainTabDialog = false
+                settingsManager.startMainTab = it
+            },
+            onDismiss = { showStartMainTabDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -1030,6 +1068,22 @@ private fun SettingsSwitchCard(
     iconType: SwitchIconType = SwitchIconType.NONE
 ) {
     val themeConfig = LocalPureClockConfig.current
+
+    // Динамический цвет иконки и её фона в зависимости от состояния переключателя
+    val dynamicIconTint by animateColorAsState(
+        targetValue = if (isChecked) themeConfig.accentColor else Color.Gray,
+        animationSpec = tween(250),
+        label = "SwitchIconTint"
+    )
+    val dynamicIconBg by animateColorAsState(
+        targetValue = if (isChecked) {
+            themeConfig.accentColor.copy(alpha = 0.15f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        },
+        animationSpec = tween(250),
+        label = "SwitchIconBg"
+    )
 
     Box(
         modifier = Modifier
@@ -1057,10 +1111,10 @@ private fun SettingsSwitchCard(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                        .background(dynamicIconBg),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = null, tint = themeConfig.accentColor)
+                    Icon(icon, contentDescription = null, tint = dynamicIconTint)
                 }
                 Spacer(modifier = Modifier.width(14.dp))
                 Column {
@@ -1084,9 +1138,11 @@ private fun SettingsClickCard(
     subtitle: String,
     onClick: () -> Unit,
     shape: androidx.compose.ui.graphics.Shape,
-    iconTint: Color = Color.Gray
+    iconTint: Color? = null
 ) {
     val themeConfig = LocalPureClockConfig.current
+    // Все обычные значки теперь акцентные по умолчанию
+    val resolvedTint = iconTint ?: themeConfig.accentColor
 
     Box(
         modifier = Modifier
@@ -1115,10 +1171,10 @@ private fun SettingsClickCard(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(iconTint.copy(alpha = 0.12f)),
+                        .background(resolvedTint.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = null, tint = iconTint)
+                    Icon(icon, contentDescription = null, tint = resolvedTint)
                 }
                 Spacer(modifier = Modifier.width(14.dp))
                 Column {
@@ -1126,7 +1182,7 @@ private fun SettingsClickCard(
                     Text(subtitle, color = Color.Gray, fontSize = 12.sp)
                 }
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = themeConfig.accentColor.copy(alpha = 0.7f))
         }
     }
 }

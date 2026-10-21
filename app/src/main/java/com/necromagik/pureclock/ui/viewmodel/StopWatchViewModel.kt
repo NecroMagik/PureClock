@@ -8,6 +8,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.necromagik.pureclock.alarm.StopwatchExternalCommand
 import com.necromagik.pureclock.alarm.StopwatchService
 import com.necromagik.pureclock.data.SettingsManager
 import kotlinx.coroutines.Job
@@ -49,24 +50,48 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
     private var timerJob: Job? = null
     private var startTime = 0L
 
-    fun toggleStartPause() {
-        if (_isRunning.value) {
-            pause()
-        } else {
-            start()
+    init {
+        // Подписываемся на нажатия кнопок секундомера из уведомления и динамического острова Origin
+        viewModelScope.launch {
+            StopwatchService.externalCommands.collect { command ->
+                when (command) {
+                    StopwatchExternalCommand.START_OR_RESUME -> {
+                        if (!_isRunning.value) start(notifyService = false)
+                    }
+                    StopwatchExternalCommand.PAUSE -> {
+                        if (_isRunning.value) pause(notifyService = false)
+                    }
+                    StopwatchExternalCommand.LAP -> {
+                        recordLap(notifyService = false)
+                    }
+                    StopwatchExternalCommand.RESET -> {
+                        reset(notifyService = false)
+                    }
+                }
+            }
         }
     }
 
-    private fun start() {
+    fun toggleStartPause() {
+        if (_isRunning.value) {
+            pause(notifyService = true)
+        } else {
+            start(notifyService = true)
+        }
+    }
+
+    private fun start(notifyService: Boolean = true) {
         _isRunning.value = true
         startTime = System.currentTimeMillis() - _elapsedMillis.value
         timerJob?.cancel()
 
-        StopwatchService.start(
-            context = getApplication(),
-            startTimeMillis = _elapsedMillis.value,
-            lapCount = _laps.value.size
-        )
+        if (notifyService) {
+            StopwatchService.start(
+                context = getApplication(),
+                startTimeMillis = _elapsedMillis.value,
+                lapCount = _laps.value.size
+            )
+        }
 
         timerJob = viewModelScope.launch {
             while (_isRunning.value) {
@@ -82,27 +107,32 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun pause() {
+    private fun pause(notifyService: Boolean = true) {
         _isRunning.value = false
         timerJob?.cancel()
 
-        StopwatchService.pause(
-            context = getApplication(),
-            startTimeMillis = _elapsedMillis.value,
-            lapCount = _laps.value.size
-        )
+        if (notifyService) {
+            StopwatchService.pause(
+                context = getApplication(),
+                startTimeMillis = _elapsedMillis.value,
+                lapCount = _laps.value.size
+            )
+        }
     }
 
-    fun reset() {
-        pause()
+    fun reset(notifyService: Boolean = true) {
+        _isRunning.value = false
+        timerJob?.cancel()
         _elapsedMillis.value = 0L
         _currentLapMillis.value = 0L
         _laps.value = emptyList()
 
-        StopwatchService.stop(getApplication())
+        if (notifyService) {
+            StopwatchService.stop(getApplication())
+        }
     }
 
-    fun recordLap() {
+    fun recordLap(notifyService: Boolean = true) {
         if (!_isRunning.value && _elapsedMillis.value == 0L) return
 
         triggerLapHaptic()
@@ -120,7 +150,7 @@ class StopwatchViewModel(application: Application) : AndroidViewModel(applicatio
         val calculatedTotalLaps = _laps.value.sumOf { it.lapTimeMillis }
         _currentLapMillis.value = (_elapsedMillis.value - calculatedTotalLaps).coerceAtLeast(0L)
 
-        if (_isRunning.value) {
+        if (_isRunning.value && notifyService) {
             StopwatchService.updateLaps(
                 context = getApplication(),
                 startTimeMillis = _elapsedMillis.value,

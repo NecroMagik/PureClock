@@ -2,6 +2,7 @@ package com.necromagik.pureclock.ui.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
@@ -52,10 +53,24 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
     val executionMode: StateFlow<TimerExecutionMode> = _executionMode.asStateFlow()
 
     private var tickerJob: Job? = null
+    private var isInternalSaving = false
+
+    // Слушатель изменений из TimerService (кнопки Пауза / Старт / +1 мин / Закрыть в уведомлении и острове)
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "saved_timers_list" && !isInternalSaving) {
+            loadTimersFromStorage()
+        }
+    }
 
     init {
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         loadTimersFromStorage()
         startTickerLoop()
+    }
+
+    override fun onCleared() {
+        prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        super.onCleared()
     }
 
     private fun loadTimersFromStorage() {
@@ -63,7 +78,7 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         if (!json.isNullOrEmpty()) {
             try {
                 val type = object : TypeToken<List<TimerItem>>() {}.type
-                val saved: List<TimerItem> = gson.fromJson(json, type)
+                val saved: List<TimerItem> = gson.fromJson(json, type) ?: emptyList()
 
                 val now = System.currentTimeMillis()
                 val restored = saved.map { item ->
@@ -80,12 +95,19 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             } catch (_: Exception) {
                 _timersList.value = emptyList()
             }
+        } else {
+            _timersList.value = emptyList()
         }
     }
 
     private fun saveTimersToStorage() {
-        val json = gson.toJson(_timersList.value)
-        prefs.edit().putString("saved_timers_list", json).apply()
+        isInternalSaving = true
+        try {
+            val json = gson.toJson(_timersList.value)
+            prefs.edit().putString("saved_timers_list", json).apply()
+        } finally {
+            isInternalSaving = false
+        }
     }
 
     private fun startTickerLoop() {
@@ -93,7 +115,9 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         tickerJob = viewModelScope.launch {
             while (true) {
                 val now = System.currentTimeMillis()
-                var hasActiveTimers = false
+                var hasRunningTimers = false
+                var hasRunningOrPausedTimers = false
+                var stateChangedToCompleted = false
                 val currentList = _timersList.value.toMutableList()
 
                 for (i in currentList.indices) {
@@ -102,13 +126,15 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                         val diffMillis = item.endTimestampMillis - now
 
                         if (diffMillis > 0) {
-                            hasActiveTimers = true
+                            hasRunningTimers = true
+                            hasRunningOrPausedTimers = true
                             val leftSec = (diffMillis + 999L) / 1000L
                             currentList[i] = item.copy(
                                 remainingMillis = diffMillis,
                                 remainingSeconds = leftSec
                             )
                         } else {
+                            stateChangedToCompleted = true
                             currentList[i] = item.copy(
                                 remainingMillis = 0L,
                                 remainingSeconds = 0L,
@@ -118,18 +144,23 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                             TimerService.triggerAlarm(getApplication(), item.id, item.label, item.initialTimeSeconds)
                             onSingleTimerFinished(i, currentList)
                         }
+                    } else if (item.state == TimerState.PAUSED) {
+                        hasRunningOrPausedTimers = true
                     }
                 }
 
                 _timersList.value = currentList
+                if (stateChangedToCompleted) {
+                    saveTimersToStorage()
+                }
 
-                if (_isChainRunning.value != hasActiveTimers) {
-                    _isChainRunning.value = hasActiveTimers
-                    updateServiceState(hasActiveTimers)
+                if (_isChainRunning.value != hasRunningTimers) {
+                    _isChainRunning.value = hasRunningTimers
+                }
 
-                    if (!hasActiveTimers) {
-                        ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
-                    }
+                // Не закрываем уведомление, если есть таймер на паузе (чтобы в острове работала кнопка "Старт")
+                if (!hasRunningOrPausedTimers && !TimerService.isRinging) {
+                    ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
                 }
 
                 delay(100L)
@@ -137,8 +168,8 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun updateServiceState(isRunning: Boolean) {
-        if (isRunning) {
+    private fun updateServiceState(hasActiveOrPaused: Boolean) {
+        if (hasActiveOrPaused) {
             TimerService.startService(getApplication())
         } else {
             if (!TimerService.isRinging) {
@@ -214,7 +245,6 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             val item = list[index]
             val now = System.currentTimeMillis()
 
-            // Если таймер уже прозвенел (COMPLETED) или сейчас звонит — нажатие на кнопку сбрасывает сигнал!
             if (item.state == TimerState.COMPLETED || TimerService.isRinging) {
                 TimerService.dismissRingingTimer(getApplication(), item.id)
                 resetSingleTimer(id)
@@ -250,7 +280,7 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             saveTimersToStorage()
 
             val updatedItem = list[index]
-            val hasRunning = list.any { it.state == TimerState.RUNNING }
+            val hasRunningOrPaused = list.any { it.state == TimerState.RUNNING || it.state == TimerState.PAUSED }
 
             if (updatedItem.state == TimerState.RUNNING || updatedItem.state == TimerState.PAUSED) {
                 ClockNotificationManager.showTimerNotification(
@@ -258,18 +288,18 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                     timerId = updatedItem.id,
                     remainingMillis = updatedItem.remainingMillis,
                     label = updatedItem.label,
-                    isRunning = updatedItem.state == TimerState.RUNNING
+                    isRunning = updatedItem.state == TimerState.RUNNING,
+                    initialTimeSeconds = updatedItem.initialTimeSeconds
                 )
-            } else {
+            } else if (!hasRunningOrPaused) {
                 ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
             }
 
-            updateServiceState(hasRunning)
+            updateServiceState(hasRunningOrPaused)
         }
     }
 
     fun resetSingleTimer(id: String) {
-        // Гарантированно глушим сигнал, если таймер в этот момент звенит
         TimerService.dismissRingingTimer(getApplication(), id)
 
         val list = _timersList.value.toMutableList()
@@ -287,8 +317,8 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             saveTimersToStorage()
         }
 
-        val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
-        if (!hasRunning) {
+        val hasRunningOrPaused = _timersList.value.any { it.state == TimerState.RUNNING || it.state == TimerState.PAUSED }
+        if (!hasRunningOrPaused) {
             ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
             TimerService.stopService(getApplication())
         } else {
@@ -308,8 +338,8 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         if (_currentTimerIndex.value >= list.size) {
             _currentTimerIndex.value = (list.size - 1).coerceAtLeast(0)
         }
-        val hasRunning = _timersList.value.any { it.state == TimerState.RUNNING }
-        if (!hasRunning) {
+        val hasRunningOrPaused = _timersList.value.any { it.state == TimerState.RUNNING || it.state == TimerState.PAUSED }
+        if (!hasRunningOrPaused) {
             ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
             TimerService.stopService(getApplication())
         } else {
@@ -324,11 +354,13 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         val triggerTime = System.currentTimeMillis() + extraMillis
 
         val finalId: String
+        val initSec: Long
         if (index != -1) {
             val item = list[index]
             finalId = item.id
+            initSec = item.initialTimeSeconds + 60L
             list[index] = item.copy(
-                initialTimeSeconds = extraSeconds,
+                initialTimeSeconds = initSec,
                 remainingSeconds = extraSeconds,
                 remainingMillis = extraMillis,
                 state = TimerState.RUNNING,
@@ -336,10 +368,11 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             )
         } else {
             finalId = timerId ?: java.util.UUID.randomUUID().toString()
+            initSec = extraSeconds
             val newItem = TimerItem(
                 id = finalId,
                 label = label.ifBlank { "Таймер" },
-                initialTimeSeconds = extraSeconds,
+                initialTimeSeconds = initSec,
                 remainingSeconds = extraSeconds,
                 remainingMillis = extraMillis,
                 state = TimerState.RUNNING,
@@ -365,7 +398,8 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
             timerId = finalId,
             remainingMillis = extraMillis,
             label = label,
-            isRunning = true
+            isRunning = true,
+            initialTimeSeconds = initSec
         )
 
         updateServiceState(true)

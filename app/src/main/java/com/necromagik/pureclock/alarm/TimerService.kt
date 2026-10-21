@@ -24,12 +24,24 @@ import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.viewmodel.TimerItem
 import com.necromagik.pureclock.ui.viewmodel.TimerState
 import com.necromagik.pureclock.util.ClockNotificationManager
-import java.util.Locale
+import com.necromagik.pureclock.util.OriginIslandHelper.attachOriginIslandFlags
+import com.necromagik.pureclock.util.OriginIslandHelper.promoteToOriginIsland
+import com.necromagik.pureclock.util.ScenaryExecutor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class TimerService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var liveTickerJob: Job? = null
 
     companion object {
         const val NOTIFICATION_ID = ClockNotificationManager.NOTIFICATION_ID_TIMER
@@ -41,6 +53,7 @@ class TimerService : Service() {
         const val ACTION_EXTEND_TIMER = "com.necromagik.pureclock.ACTION_EXTEND_TIMER"
         const val ACTION_PAUSE_TIMER = "com.necromagik.pureclock.ACTION_PAUSE_TIMER"
         const val ACTION_RESUME_TIMER = "com.necromagik.pureclock.ACTION_RESUME_TIMER"
+        const val ACTION_CANCEL_TIMER = "com.necromagik.pureclock.ACTION_CANCEL_TIMER"
 
         const val EXTRA_TIMER_ID = "extra_timer_id"
         const val EXTRA_LABEL = "extra_timer_label"
@@ -88,10 +101,10 @@ class TimerService : Service() {
         fun dismissRingingTimer(context: Context, timerId: String? = null) {
             isRinging = false
 
-            // Сбрасываем завершившийся таймер в состояние IDLE в SharedPreferences
             val prefs = context.getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
             val json = prefs.getString("saved_timers_list", null)
             var hasRunningTimers = false
+            val dismissedTimerIds = mutableListOf<String>()
 
             if (!json.isNullOrEmpty()) {
                 try {
@@ -103,6 +116,7 @@ class TimerService : Service() {
                         val item = list[i]
                         if ((timerId != null && item.id == timerId) || item.state == TimerState.COMPLETED) {
                             TimerReceiver.cancelTimerAlarm(context, item.id)
+                            dismissedTimerIds.add(item.id)
                             list[i] = item.copy(
                                 state = TimerState.IDLE,
                                 remainingSeconds = item.initialTimeSeconds,
@@ -119,13 +133,19 @@ class TimerService : Service() {
                 } catch (_: Exception) {}
             }
 
-            // Закрываем полноэкранное окно, если оно открыто или свернуто в фоне
+            if (timerId != null && !dismissedTimerIds.contains(timerId)) {
+                dismissedTimerIds.add(timerId)
+            }
+
+            dismissedTimerIds.forEach { id ->
+                ScenaryExecutor.executeForTimer(context, id)
+            }
+
             context.sendBroadcast(Intent(AlarmAlertActivity.ACTION_CLOSE_ALERT).setPackage(context.packageName))
 
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.cancel(ALARM_NOTIFICATION_ID)
 
-            // Отправляем команду сервису остановить звук (или полностью закрыться, если других таймеров нет)
             if (hasRunningTimers) {
                 val intent = Intent(context, TimerService::class.java).apply {
                     action = ACTION_DISMISS_TIMER_ALARM
@@ -173,6 +193,27 @@ class TimerService : Service() {
         }
     }
 
+    private fun ensureLiveNotificationTicker() {
+        if (liveTickerJob?.isActive == true) return
+        liveTickerJob = serviceScope.launch {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            while (isActive) {
+                if (!isRinging) {
+                    val active = findActiveOrPausedTimer()
+                    if (active == null) {
+                        stopSelf()
+                        break
+                    }
+                    nm.notify(NOTIFICATION_ID, buildLiveTimerNotification())
+                    if (active.state != TimerState.RUNNING) {
+                        break
+                    }
+                }
+                delay(1000L)
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createAlarmNotificationChannel()
@@ -183,6 +224,7 @@ class TimerService : Service() {
         when (intent?.action) {
             ACTION_TRIGGER_ALARM -> {
                 isRinging = true
+                liveTickerJob?.cancel()
                 val timerId = intent.getStringExtra(EXTRA_TIMER_ID)
                 val label = intent.getStringExtra(EXTRA_LABEL) ?: "Таймер"
                 val durationSeconds = intent.getLongExtra(EXTRA_DURATION_SECONDS, 0L)
@@ -203,22 +245,69 @@ class TimerService : Service() {
                 val label = intent.getStringExtra(EXTRA_LABEL) ?: "Таймер"
                 val minutesToAdd = intent.getIntExtra(EXTRA_ADD_MINUTES, 1)
                 handleExtendTimer(timerId, label, minutesToAdd)
+                ensureLiveNotificationTicker()
             }
             ACTION_PAUSE_TIMER -> {
                 val timerId = intent.getStringExtra(EXTRA_TIMER_ID)
                 handlePauseTimer(timerId)
+                liveTickerJob?.cancel()
             }
             ACTION_RESUME_TIMER -> {
                 val timerId = intent.getStringExtra(EXTRA_TIMER_ID)
                 handleResumeTimer(timerId)
+                ensureLiveNotificationTicker()
+            }
+            ACTION_CANCEL_TIMER -> {
+                val timerId = intent.getStringExtra(EXTRA_TIMER_ID)
+                handleCancelTimer(timerId)
+                return START_NOT_STICKY
             }
             else -> {
                 if (!isRinging) {
                     startTimerForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+                    ensureLiveNotificationTicker()
                 }
             }
         }
         return START_STICKY
+    }
+
+    private fun handleCancelTimer(timerId: String?) {
+        stopMediaAndVibration()
+        isRinging = false
+        val prefs = getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
+        val gson = Gson()
+        val json = prefs.getString("saved_timers_list", null)
+        var hasOtherActive = false
+
+        if (!json.isNullOrEmpty()) {
+            try {
+                val type = object : TypeToken<MutableList<TimerItem>>() {}.type
+                val list: MutableList<TimerItem> = gson.fromJson(json, type) ?: mutableListOf()
+                for (i in list.indices) {
+                    val item = list[i]
+                    if ((timerId != null && item.id == timerId) || (timerId == null && item.state != TimerState.IDLE)) {
+                        TimerReceiver.cancelTimerAlarm(this, item.id)
+                        list[i] = item.copy(
+                            state = TimerState.IDLE,
+                            remainingSeconds = item.initialTimeSeconds,
+                            remainingMillis = item.initialTimeSeconds * 1000L
+                        )
+                    } else if (item.state == TimerState.RUNNING || item.state == TimerState.PAUSED) {
+                        hasOtherActive = true
+                    }
+                }
+                prefs.edit().putString("saved_timers_list", gson.toJson(list)).apply()
+            } catch (_: Exception) {}
+        }
+
+        if (hasOtherActive) {
+            startTimerForeground(NOTIFICATION_ID, buildLiveTimerNotification())
+            ensureLiveNotificationTicker()
+        } else {
+            liveTickerJob?.cancel()
+            stopService(this)
+        }
     }
 
     private fun playTimerSoundAndVibration() {
@@ -369,7 +458,7 @@ class TimerService : Service() {
         startTimerForeground(NOTIFICATION_ID, buildLiveTimerNotification())
     }
 
-    private fun buildLiveTimerNotification(): Notification {
+    private fun findActiveOrPausedTimer(): TimerItem? {
         val prefs = getSharedPreferences("pureclock_timers_prefs", Context.MODE_PRIVATE)
         val json = prefs.getString("saved_timers_list", null)
         val list = if (!json.isNullOrEmpty()) {
@@ -381,20 +470,31 @@ class TimerService : Service() {
             }
         } else emptyList()
 
-        val activeTimer = list.firstOrNull { it.state == TimerState.RUNNING }
+        return list.firstOrNull { it.state == TimerState.RUNNING }
             ?: list.firstOrNull { it.state == TimerState.PAUSED }
+    }
 
-        val remaining = activeTimer?.remainingMillis ?: 0L
+    private fun buildLiveTimerNotification(): Notification {
+        val activeTimer = findActiveOrPausedTimer()
+        val now = System.currentTimeMillis()
+        val isRunning = activeTimer?.state == TimerState.RUNNING
+        val remaining = if (isRunning && activeTimer != null && activeTimer.endTimestampMillis > now) {
+            activeTimer.endTimestampMillis - now
+        } else {
+            activeTimer?.remainingMillis ?: 0L
+        }
+
         val label = activeTimer?.label ?: "Таймер"
         val activeId = activeTimer?.id ?: ""
-        val isRunning = activeTimer?.state == TimerState.RUNNING
+        val initialSeconds = activeTimer?.initialTimeSeconds ?: 0L
 
         return ClockNotificationManager.buildTimerNotification(
             context = this,
             timerId = activeId,
             remainingMillis = remaining,
             label = label,
-            isRunning = isRunning
+            isRunning = isRunning,
+            initialTimeSeconds = initialSeconds
         )
     }
 
@@ -404,10 +504,8 @@ class TimerService : Service() {
         durationSeconds: Long,
         durationText: String
     ) {
-        // 1. Запускаем звук и вибрацию внутри самого сервиса
         playTimerSoundAndVibration()
 
-        // 2. Если длительность не передана — достаём её из сохранённого таймера, чтобы было "5м 00с", а не пустая строка
         var resolvedSeconds = durationSeconds
         if (resolvedSeconds <= 0L) {
             try {
@@ -451,20 +549,24 @@ class TimerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Уведомление остаётся в шторке (setOngoing(true), setAutoCancel(false)), пока сигнал не будет выключен!
         val notification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Таймер завершен!")
-            .setContentText(label)
+            .setContentTitle("00:00")
+            .setContentText("Таймер завершен • $label")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
-            .addAction(0, "Отключить", dismissPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отключить", dismissPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
+            .promoteToOriginIsland(
+                chipText = "00:00",
+                targetTimeMillis = null
+            )
             .build()
+            .attachOriginIslandFlags(chipText = "00:00")
 
         startTimerForeground(ALARM_NOTIFICATION_ID, notification)
         try {
@@ -492,6 +594,8 @@ class TimerService : Service() {
     }
 
     override fun onDestroy() {
+        liveTickerJob?.cancel()
+        serviceScope.cancel()
         stopMediaAndVibration()
         isRinging = false
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

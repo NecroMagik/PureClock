@@ -12,6 +12,8 @@ import com.necromagik.pureclock.MainActivity
 import com.necromagik.pureclock.R
 import com.necromagik.pureclock.alarm.StopwatchService
 import com.necromagik.pureclock.alarm.TimerService
+import com.necromagik.pureclock.util.OriginIslandHelper.attachOriginIslandFlags
+import java.util.Locale
 
 object ClockNotificationManager {
 
@@ -22,31 +24,54 @@ object ClockNotificationManager {
     const val NOTIFICATION_ID_TIMER = 10002
 
     fun initChannels(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            val stopwatchChannel = NotificationChannel(
-                CHANNEL_STOPWATCH,
-                "Секундомер",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                setShowBadge(false)
-                setSound(null, null)
-                enableVibration(false)
-            }
+        val stopwatchChannel = NotificationChannel(
+            CHANNEL_STOPWATCH,
+            "Секундомер",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            setShowBadge(false)
+            setSound(null, null)
+            enableVibration(false)
+        }
 
-            val timerChannel = NotificationChannel(
-                CHANNEL_TIMER,
-                "Таймер",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                setShowBadge(false)
-                setSound(null, null)
-                enableVibration(false)
-            }
+        val timerChannel = NotificationChannel(
+            CHANNEL_TIMER,
+            "Таймер",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            setShowBadge(false)
+            setSound(null, null)
+            enableVibration(false)
+        }
 
-            manager.createNotificationChannel(stopwatchChannel)
-            manager.createNotificationChannel(timerChannel)
+        manager.createNotificationChannel(stopwatchChannel)
+        manager.createNotificationChannel(timerChannel)
+    }
+
+    private fun formatClockTime(totalSeconds: Long): String {
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) {
+            String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.ROOT, "%02d:%02d", minutes, seconds)
+        }
+    }
+
+    private fun formatInitialDurationText(initialSeconds: Long): String {
+        if (initialSeconds <= 0L) return ""
+        val hours = initialSeconds / 3600
+        val mins = (initialSeconds % 3600) / 60
+        val secs = initialSeconds % 60
+        return when {
+            hours > 0 && mins > 0 -> "$hours ч $mins мин"
+            hours > 0 -> "$hours ч"
+            mins > 0 && secs > 0 -> "$mins мин $secs сек"
+            mins > 0 -> "$mins мин"
+            else -> "$secs сек"
         }
     }
 
@@ -71,6 +96,7 @@ object ClockNotificationManager {
             action = if (isRunning) StopwatchService.ACTION_PAUSE else StopwatchService.ACTION_START
             putExtra(StopwatchService.EXTRA_START_TIME, startTimeMillis)
             putExtra(StopwatchService.EXTRA_LAP_COUNT, currentLapCount)
+            putExtra(StopwatchService.EXTRA_FROM_NOTIFICATION, true)
         }
         val togglePendingIntent = PendingIntent.getService(
             context,
@@ -79,35 +105,61 @@ object ClockNotificationManager {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val bodyText = if (isRunning) {
-            if (currentLapCount > 0) "Кругов: $currentLapCount" else "Идёт отсчёт"
-        } else {
-            val sec = startTimeMillis / 1000
-            "Пауза • ${String.format("%02d:%02d", sec / 60, sec % 60)}"
+        val stopIntent = Intent(context, StopwatchService::class.java).apply {
+            action = StopwatchService.ACTION_STOP
+            putExtra(StopwatchService.EXTRA_FROM_NOTIFICATION, true)
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            context,
+            11,
+            stopIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val lapIntent = Intent(context, StopwatchService::class.java).apply {
+            action = StopwatchService.ACTION_LAP_FROM_NOTIFICATION
+            putExtra(StopwatchService.EXTRA_FROM_NOTIFICATION, true)
+        }
+        val lapPendingIntent = PendingIntent.getService(
+            context,
+            12,
+            lapIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val totalSec = (startTimeMillis / 1000L).coerceAtLeast(0L)
+        val formattedTime = formatClockTime(totalSec)
+
+        // Точно как на референсе: сверху крупно "00:07", снизу "Секундомер"
+        val subtitleText = when {
+            !isRunning -> "Секундомер • Пауза"
+            currentLapCount > 0 -> "Секундомер • Кругов: $currentLapCount"
+            else -> "Секундомер"
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_STOPWATCH)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Секундомер")
-            .setContentText(bodyText)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentTitle(formattedTime)
+            .setContentText(subtitleText)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(isRunning)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setUsesChronometer(false)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(true)
 
         if (isRunning) {
-            builder.setUsesChronometer(true)
-            builder.setChronometerCountDown(false)
-            builder.setWhen(System.currentTimeMillis() - startTimeMillis)
+            builder.addAction(android.R.drawable.ic_menu_mylocation, "Круг", lapPendingIntent)
             builder.addAction(android.R.drawable.ic_media_pause, "Пауза", togglePendingIntent)
         } else {
-            builder.setUsesChronometer(false)
-            builder.addAction(android.R.drawable.ic_media_play, "Продолжить", togglePendingIntent)
+            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Сброс", stopPendingIntent)
+            builder.addAction(android.R.drawable.ic_media_play, "Старт", togglePendingIntent)
         }
 
-        return builder.build()
+        return builder.build().attachOriginIslandFlags(
+            chipText = formattedTime
+        )
     }
 
     fun showStopwatchNotification(
@@ -128,7 +180,8 @@ object ClockNotificationManager {
         timerId: String,
         remainingMillis: Long,
         label: String,
-        isRunning: Boolean
+        isRunning: Boolean,
+        initialTimeSeconds: Long = 0L
     ): Notification {
         initChannels(context)
 
@@ -141,17 +194,19 @@ object ClockNotificationManager {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val toggleIntent = Intent(context, TimerService::class.java).apply {
-            action = if (isRunning) TimerService.ACTION_PAUSE_TIMER else TimerService.ACTION_RESUME_TIMER
+        // 1. Кнопка Закрыть / Удалить
+        val cancelIntent = Intent(context, TimerService::class.java).apply {
+            action = TimerService.ACTION_CANCEL_TIMER
             putExtra(TimerService.EXTRA_TIMER_ID, timerId)
         }
-        val togglePendingIntent = PendingIntent.getService(
+        val cancelPendingIntent = PendingIntent.getService(
             context,
-            21,
-            toggleIntent,
+            22,
+            cancelIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // 2. Кнопка +1 мин
         val addMinuteIntent = Intent(context, TimerService::class.java).apply {
             action = TimerService.ACTION_EXTEND_TIMER
             putExtra(TimerService.EXTRA_TIMER_ID, timerId)
@@ -165,33 +220,63 @@ object ClockNotificationManager {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val totalSec = (remainingMillis + 999L) / 1000L
-        val formattedTime = String.format("%02d:%02d", totalSec / 60, totalSec % 60)
+        // 3. Кнопка Пауза / Старт
+        val toggleIntent = Intent(context, TimerService::class.java).apply {
+            action = if (isRunning) TimerService.ACTION_PAUSE_TIMER else TimerService.ACTION_RESUME_TIMER
+            putExtra(TimerService.EXTRA_TIMER_ID, timerId)
+        }
+        val togglePendingIntent = PendingIntent.getService(
+            context,
+            21,
+            toggleIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
+        val totalSec = ((remainingMillis + 999L) / 1000L).coerceAtLeast(0L)
+        val formattedCountdown = formatClockTime(totalSec)
+
+        // Формируем нижнюю подпись как на референсе ("15 мин" или "Название • 15 мин")
+        val durationLabel = formatInitialDurationText(initialTimeSeconds)
+        val cleanLabel = label.trim()
+        val isDefaultTimerName = cleanLabel.isEmpty() ||
+                cleanLabel.equals("Таймер", ignoreCase = true) ||
+                cleanLabel.matches(Regex("""^Таймер\s*\d*$""", RegexOption.IGNORE_CASE))
+
+        val baseSubtitle = when {
+            !isDefaultTimerName && durationLabel.isNotEmpty() -> "$cleanLabel • $durationLabel"
+            durationLabel.isNotEmpty() -> durationLabel
+            cleanLabel.isNotEmpty() -> cleanLabel
+            else -> "Таймер"
+        }
+        val finalSubtitle = if (isRunning) baseSubtitle else "$baseSubtitle • Пауза"
+
+        // Крупно сверху — сам отсчёт ("14:53"), снизу — подпись ("15 мин"), без дублирующего хронометра справа!
         val builder = NotificationCompat.Builder(context, CHANNEL_TIMER)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(label.ifBlank { "Таймер" })
-            .setContentText(if (isRunning) "Осталось времени" else "Пауза • $formattedTime")
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentTitle(formattedCountdown)
+            .setContentText(finalSubtitle)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(isRunning)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setUsesChronometer(false)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(true)
 
+        // Все 3 кнопки у таймера: 1) Закрыть, 2) +1 мин, 3) Пауза/Старт
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Закрыть", cancelPendingIntent)
+        builder.addAction(R.drawable.ic_notification, "+1 мин", addMinutePendingIntent)
+
         if (isRunning) {
-            builder.setUsesChronometer(true)
-            builder.setChronometerCountDown(true)
-            builder.setWhen(System.currentTimeMillis() + remainingMillis)
             builder.addAction(android.R.drawable.ic_media_pause, "Пауза", togglePendingIntent)
-            builder.addAction(R.drawable.ic_notification, "+1 мин", addMinutePendingIntent)
         } else {
-            builder.setUsesChronometer(false)
             builder.addAction(android.R.drawable.ic_media_play, "Старт", togglePendingIntent)
-            builder.addAction(R.drawable.ic_notification, "+1 мин", addMinutePendingIntent)
         }
 
-        return builder.build()
+        return builder.build().attachOriginIslandFlags(
+            chipText = formattedCountdown
+        )
     }
 
     fun showTimerNotification(
@@ -199,12 +284,13 @@ object ClockNotificationManager {
         timerId: String,
         remainingMillis: Long,
         label: String,
-        isRunning: Boolean
+        isRunning: Boolean,
+        initialTimeSeconds: Long = 0L
     ) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(
             NOTIFICATION_ID_TIMER,
-            buildTimerNotification(context, timerId, remainingMillis, label, isRunning)
+            buildTimerNotification(context, timerId, remainingMillis, label, isRunning, initialTimeSeconds)
         )
     }
 

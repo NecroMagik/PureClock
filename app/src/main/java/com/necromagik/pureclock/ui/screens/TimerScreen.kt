@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +54,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.necromagik.pureclock.data.model.ScenaryItem
+import com.necromagik.pureclock.data.model.ScenaryTargetType
+import com.necromagik.pureclock.data.repository.ScenaryRepository
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.animation.breathingGlow
 import com.necromagik.pureclock.ui.animation.staggeredEntrance
@@ -65,7 +69,6 @@ import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewMode
 import kotlinx.coroutines.delay
 import java.util.Locale
-import androidx.compose.ui.platform.LocalContext
 
 val QuickTimerPresets = listOf(
     1L to "1 мин",
@@ -75,6 +78,11 @@ val QuickTimerPresets = listOf(
     30L to "30 мин",
     60L to "1 час"
 )
+
+private enum class TimerSubTab(val title: String) {
+    MAIN("Основные"),
+    SCENARY("Сценарий")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,9 +95,59 @@ fun TimerScreen(
     val themeConfig = LocalPureClockConfig.current
     val accentColor = themeConfig.accentColor
 
+    val scenaryRepository = remember { ScenaryRepository.getInstance(context) }
+    val allScenarios by scenaryRepository.scenariosFlow.collectAsState()
+    val timerBindings by scenaryRepository.timerBindingsFlow.collectAsState()
+
     val timersList by timerViewModel.timersList.collectAsState()
     val viewMode by timerViewModel.viewMode.collectAsState()
     var showBottomSheet by remember { mutableStateOf(false) }
+
+    val timerScenarios = remember(allScenarios) {
+        allScenarios.filter { it.targetType == ScenaryTargetType.TIMER }
+    }
+
+    // Автоматически создаём карточку таймера для новых сценарных таймеров из ScenaryScreen
+    LaunchedEffect(timerScenarios, timersList, timerBindings) {
+        val boundScenarioIds = timerBindings.values.toSet()
+        timerScenarios.forEach { scen ->
+            if (!boundScenarioIds.contains(scen.id)) {
+                val existingIds = timerViewModel.timersList.value.map { it.id }.toSet()
+                timerViewModel.addTimerToChain(scen.title, scen.timerDurationSeconds)
+                val added = timerViewModel.timersList.value.firstOrNull { !existingIds.contains(it.id) }
+                if (added != null) {
+                    scenaryRepository.bindTimerToScenario(added.id, scen.id)
+                }
+            }
+        }
+    }
+
+    val validScenarioIds = remember(allScenarios) { allScenarios.map { it.id }.toSet() }
+    val boundTimerIds = remember(timerBindings, validScenarioIds) {
+        timerBindings.filterValues { validScenarioIds.contains(it) }.keys
+    }
+
+    val mainTimers = remember(timersList, boundTimerIds) {
+        timersList.filterNot { boundTimerIds.contains(it.id) }
+    }
+    val scenarioTimers = remember(timersList, boundTimerIds) {
+        timersList.filter { boundTimerIds.contains(it.id) }
+    }
+
+    val hasAnyScenarioTimers = scenarioTimers.isNotEmpty()
+    var selectedSubTab by remember { mutableStateOf(TimerSubTab.MAIN) }
+
+    LaunchedEffect(hasAnyScenarioTimers) {
+        if (!hasAnyScenarioTimers && selectedSubTab == TimerSubTab.SCENARY) {
+            selectedSubTab = TimerSubTab.MAIN
+        }
+    }
+
+    val displayedTimers = if (selectedSubTab == TimerSubTab.SCENARY && hasAnyScenarioTimers) {
+        scenarioTimers
+    } else {
+        mainTimers
+    }
 
     BackHandler(enabled = showBottomSheet) {
         showBottomSheet = false
@@ -119,21 +177,31 @@ fun TimerScreen(
         ) {
             NewTimerSetupSheet(
                 accentColor = accentColor,
-                themeConfig = themeConfig,
-                onAdd = { hours, minutes, seconds, label ->
+                availableScenarios = timerScenarios,
+                onAdd = { hours, minutes, seconds, label, chosenScenarioId ->
                     val totalSec = (hours * 3600L) + (minutes * 60L) + seconds
                     if (totalSec > 0) {
+                        val beforeIds = timersList.map { it.id }.toSet()
                         timerViewModel.addTimerToChain(label, totalSec)
+                        val newTimer = timerViewModel.timersList.value.firstOrNull { !beforeIds.contains(it.id) }
+                        if (newTimer != null && chosenScenarioId != null) {
+                            scenaryRepository.bindTimerToScenario(newTimer.id, chosenScenarioId)
+                            selectedSubTab = TimerSubTab.SCENARY
+                        }
                     }
                     showBottomSheet = false
                 },
-                onStart = { hours, minutes, seconds, label ->
+                onStart = { hours, minutes, seconds, label, chosenScenarioId ->
                     val totalSec = (hours * 3600L) + (minutes * 60L) + seconds
                     if (totalSec > 0) {
                         val beforeIds = timersList.map { it.id }.toSet()
                         timerViewModel.addTimerToChain(label, totalSec)
                         val newTimer = timerViewModel.timersList.value.firstOrNull { !beforeIds.contains(it.id) }
                         if (newTimer != null) {
+                            if (chosenScenarioId != null) {
+                                scenaryRepository.bindTimerToScenario(newTimer.id, chosenScenarioId)
+                                selectedSubTab = TimerSubTab.SCENARY
+                            }
                             timerViewModel.toggleSingleTimer(newTimer.id)
                         }
                     }
@@ -144,144 +212,181 @@ fun TimerScreen(
         }
     }
 
-    AnimatedContent(
-        targetState = timersList.isEmpty(),
-        transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(300)) },
-        label = "TimerEmptyStateTransition"
-    ) { isEmpty ->
-        if (isEmpty) {
-            EmptyTimerState(onAddTimerClick = { showBottomSheet = true })
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                val hasCompletedOrRinging = timersList.any { it.state == TimerState.COMPLETED } ||
-                        com.necromagik.pureclock.alarm.TimerService.isRinging
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(10.dp))
 
-                AnimatedVisibility(
-                    visible = hasCompletedOrRinging,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    Button(
-                        onClick = {
-                            com.necromagik.pureclock.alarm.TimerService.dismissRingingTimer(context)
-                            timersList.filter { it.state == TimerState.COMPLETED }.forEach {
-                                timerViewModel.resetSingleTimer(it.id)
+        // Динамический переключатель "Основные" | "Сценарий"
+        AnimatedVisibility(
+            visible = hasAnyScenarioTimers,
+            enter = fadeIn(tween(250)) + expandVertically(),
+            exit = fadeOut(tween(200)) + shrinkVertically()
+        ) {
+            SubTabSelectorRow(
+                tabs = TimerSubTab.entries.map { it.title },
+                selectedIndex = selectedSubTab.ordinal,
+                accentColor = accentColor,
+                onTabSelected = { index ->
+                    selectedSubTab = TimerSubTab.entries[index]
+                },
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+        }
+
+        val hasCompletedOrRinging = timersList.any { it.state == TimerState.COMPLETED } ||
+                com.necromagik.pureclock.alarm.TimerService.isRinging
+
+        AnimatedVisibility(
+            visible = hasCompletedOrRinging,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Button(
+                onClick = {
+                    val completedTimers = timersList.filter { it.state == TimerState.COMPLETED }
+                    com.necromagik.pureclock.alarm.TimerService.dismissRingingTimer(context)
+                    completedTimers.forEach { completed ->
+                        timerViewModel.resetSingleTimer(completed.id)
+                        com.necromagik.pureclock.util.ScenaryExecutor.executeForTimer(
+                            context = context,
+                            timerId = completed.id,
+                            onChainNextTimer = { nextMinutes, nextLabel ->
+                                val beforeIds = timerViewModel.timersList.value.map { it.id }.toSet()
+                                timerViewModel.addTimerToChain(nextLabel, nextMinutes * 60L)
+                                val nextItem = timerViewModel.timersList.value.firstOrNull { !beforeIds.contains(it.id) }
+                                if (nextItem != null) {
+                                    timerViewModel.toggleSingleTimer(nextItem.id)
+                                }
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFFF5252),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                            .height(52.dp)
-                            .bounceClick()
-                    ) {
-                        Text("Отключить сигнал таймера", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "АКТИВНЫЕ ТАЙМЕРЫ (${timersList.size})",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Gray
-                    )
-
-                    IconButton(
-                        onClick = { timerViewModel.toggleViewMode() },
-                        modifier = Modifier.bounceClick()
-                    ) {
-                        Icon(
-                            imageVector = if (viewMode == TimerViewMode.CAROUSEL) Icons.Default.GridView else Icons.Default.ViewDay,
-                            contentDescription = "Режим отображения",
-                            tint = accentColor
                         )
                     }
-                }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFF5252),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .height(52.dp)
+                    .bounceClick()
+            ) {
+                Text("Отключить сигнал таймера", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+            }
+        }
 
-                AnimatedContent(
-                    targetState = viewMode == TimerViewMode.CAROUSEL,
-                    transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
-                    label = "TimerViewModeTransition"
-                ) { isTileView ->
-                    if (isTileView) {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+        AnimatedContent(
+            targetState = displayedTimers.isEmpty(),
+            transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(300)) },
+            label = "TimerEmptyStateTransition"
+        ) { isEmpty ->
+            if (isEmpty) {
+                EmptyTimerState(onAddTimerClick = { showBottomSheet = true })
+            } else {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "АКТИВНЫЕ ТАЙМЕРЫ",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray
+                        )
+
+                        IconButton(
+                            onClick = { timerViewModel.toggleViewMode() },
+                            modifier = Modifier.bounceClick()
                         ) {
-                            itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
-                                var isVisible by remember { mutableStateOf(true) }
+                            Icon(
+                                imageVector = if (viewMode == TimerViewMode.CAROUSEL) Icons.Default.GridView else Icons.Default.ViewDay,
+                                contentDescription = "Режим отображения",
+                                tint = accentColor
+                            )
+                        }
+                    }
 
-                                AnimatedVisibility(
-                                    visible = isVisible,
-                                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f)
-                                ) {
-                                    Box(modifier = Modifier.staggeredEntrance(index = index)) {
-                                        TimerTileCard(
-                                            item = item,
-                                            accentColor = accentColor,
-                                            themeConfig = themeConfig,
-                                            onToggle = { timerViewModel.toggleSingleTimer(item.id) },
-                                            onReset = { timerViewModel.resetSingleTimer(item.id) },
-                                            onDelete = {
-                                                isVisible = false
-                                                timerViewModel.deleteTimer(item.id)
-                                            },
-                                            onAddMinute = { id ->
-                                                timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
-                                            }
-                                        )
+                    AnimatedContent(
+                        targetState = viewMode == TimerViewMode.CAROUSEL,
+                        transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
+                        label = "TimerViewModeTransition"
+                    ) { isTileView ->
+                        if (isTileView) {
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .weight(1f),
+                                contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+                            ) {
+                                itemsIndexed(displayedTimers, key = { _, item -> item.id }) { index, item ->
+                                    var isVisible by remember { mutableStateOf(true) }
+
+                                    AnimatedVisibility(
+                                        visible = isVisible,
+                                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f)
+                                    ) {
+                                        Box(modifier = Modifier.staggeredEntrance(index = index)) {
+                                            TimerTileCard(
+                                                item = item,
+                                                accentColor = accentColor,
+                                                themeConfig = themeConfig,
+                                                onToggle = { timerViewModel.toggleSingleTimer(item.id) },
+                                                onReset = { timerViewModel.resetSingleTimer(item.id) },
+                                                onDelete = {
+                                                    isVisible = false
+                                                    scenaryRepository.bindTimerToScenario(item.id, null)
+                                                    timerViewModel.deleteTimer(item.id)
+                                                },
+                                                onAddMinute = { id ->
+                                                    timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
-                        ) {
-                            itemsIndexed(timersList, key = { _, item -> item.id }) { index, item ->
-                                var isVisible by remember { mutableStateOf(true) }
+                        } else {
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .weight(1f),
+                                contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp)
+                            ) {
+                                itemsIndexed(displayedTimers, key = { _, item -> item.id }) { index, item ->
+                                    var isVisible by remember { mutableStateOf(true) }
 
-                                AnimatedVisibility(
-                                    visible = isVisible,
-                                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200))
-                                ) {
-                                    Box(modifier = Modifier.staggeredEntrance(index = index)) {
-                                        TimerGridItemCard(
-                                            item = item,
-                                            accentColor = accentColor,
-                                            themeConfig = themeConfig,
-                                            onToggle = { timerViewModel.toggleSingleTimer(item.id) },
-                                            onReset = { timerViewModel.resetSingleTimer(item.id) },
-                                            onDelete = {
-                                                isVisible = false
-                                                timerViewModel.deleteTimer(item.id)
-                                            },
-                                            onAddMinute = { id ->
-                                                timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
-                                            }
-                                        )
+                                    AnimatedVisibility(
+                                        visible = isVisible,
+                                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200))
+                                    ) {
+                                        Box(modifier = Modifier.staggeredEntrance(index = index)) {
+                                            TimerGridItemCard(
+                                                item = item,
+                                                accentColor = accentColor,
+                                                themeConfig = themeConfig,
+                                                onToggle = { timerViewModel.toggleSingleTimer(item.id) },
+                                                onReset = { timerViewModel.resetSingleTimer(item.id) },
+                                                onDelete = {
+                                                    isVisible = false
+                                                    scenaryRepository.bindTimerToScenario(item.id, null)
+                                                    timerViewModel.deleteTimer(item.id)
+                                                },
+                                                onAddMinute = { id ->
+                                                    timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -293,19 +398,19 @@ fun TimerScreen(
     }
 }
 
-// ДИНАМИЧЕСКИЙ БЛОК НАСТРОЙКИ
 @Composable
 private fun NewTimerSetupSheet(
     accentColor: Color,
-    themeConfig: com.necromagik.pureclock.ui.theme.PureClockThemeConfig,
-    onAdd: (hours: Int, minutes: Int, seconds: Int, label: String) -> Unit,
-    onStart: (hours: Int, minutes: Int, seconds: Int, label: String) -> Unit,
+    availableScenarios: List<ScenaryItem>,
+    onAdd: (hours: Int, minutes: Int, seconds: Int, label: String, scenarioId: String?) -> Unit,
+    onStart: (hours: Int, minutes: Int, seconds: Int, label: String, scenarioId: String?) -> Unit,
     onCancel: () -> Unit
 ) {
     var hours by remember { mutableIntStateOf(0) }
     var minutes by remember { mutableIntStateOf(5) }
     var seconds by remember { mutableIntStateOf(0) }
     var labelText by remember { mutableStateOf("") }
+    var selectedScenarioId by remember { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
 
     var activeEditingField by remember { mutableIntStateOf(-1) }
@@ -455,7 +560,34 @@ private fun NewTimerSetupSheet(
             )
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (availableScenarios.isNotEmpty()) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = selectedScenarioId == null,
+                        onClick = { selectedScenarioId = null },
+                        label = { Text("Основные", fontSize = 12.sp) }
+                    )
+                }
+                items(availableScenarios) { scen ->
+                    FilterChip(
+                        selected = selectedScenarioId == scen.id,
+                        onClick = {
+                            selectedScenarioId = scen.id
+                            if (labelText.isBlank()) labelText = scen.title
+                        },
+                        label = { Text(scen.title, fontSize = 12.sp) }
+                    )
+                }
+            }
+        }
 
         OutlinedTextField(
             value = labelText,
@@ -487,7 +619,7 @@ private fun NewTimerSetupSheet(
             }
 
             Button(
-                onClick = { onAdd(hours, minutes, seconds, labelText) },
+                onClick = { onAdd(hours, minutes, seconds, labelText, selectedScenarioId) },
                 enabled = totalSeconds > 0,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = addColor,
@@ -504,7 +636,7 @@ private fun NewTimerSetupSheet(
             }
 
             Button(
-                onClick = { onStart(hours, minutes, seconds, labelText) },
+                onClick = { onStart(hours, minutes, seconds, labelText, selectedScenarioId) },
                 enabled = totalSeconds > 0,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = accentColor,
@@ -837,12 +969,10 @@ private fun TimerTileCard(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Панель управления с кнопкой {+1} минута
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Кнопка: Сброс
                 IconButton(
                     onClick = onReset,
                     modifier = Modifier
@@ -859,7 +989,6 @@ private fun TimerTileCard(
                     )
                 }
 
-                // Кнопка: Добавить 1 минуту (+1)
                 IconButton(
                     onClick = { onAddMinute(item.id) },
                     modifier = Modifier
@@ -876,7 +1005,6 @@ private fun TimerTileCard(
                     )
                 }
 
-                // Кнопка: Старт / Пауза
                 FloatingActionButton(
                     onClick = onToggle,
                     containerColor = if (isRunning) accentColor else MaterialTheme.colorScheme.surfaceVariant,
@@ -893,7 +1021,6 @@ private fun TimerTileCard(
                     )
                 }
 
-                // Кнопка: Удалить
                 IconButton(
                     onClick = onDelete,
                     modifier = Modifier
@@ -925,7 +1052,6 @@ private fun TimerGridItemCard(
     onAddMinute: (String) -> Unit
 ) {
     val isRunning = item.state == TimerState.RUNNING
-    val isCompleted = item.state == TimerState.COMPLETED
     val titleColor = if (isRunning) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
 
     val formattedTime = remember(item.remainingSeconds) {

@@ -2,34 +2,36 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Подавлялки -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"
+        tools:ignore="FullScreenIntent" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"
+        tools:ignore="ExactAlarm" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"
+        tools:ignore="ForegroundServicesDecl" />
+
     <!-- Базовые разрешения -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
-    <uses-permission
-        android:name="android.permission.USE_FULL_SCREEN_INTENT"
-        tools:ignore="FullScreenIntent" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission
-        android:name="android.permission.USE_EXACT_ALARM"
-        tools:ignore="UseExactAlarm" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission
-        android:name="android.permission.FOREGROUND_SERVICE"
-        tools:ignore="ForegroundServicesDecl" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- ОТКЛЮЧИТЬ ПЕРЕД ПУБЛИКАЦИЕЙ В МАРКЕТЫ  -->
+    <!-- ОТКЛЮЧИТЬ ПЕРЕД ПУБЛИКАЦИЕЙ В МАРКЕТЫ
     <uses-permission
         android:name="android.permission.REQUEST_INSTALL_PACKAGES"
-        tools:ignore="RequestInstallPackagesPolicy" />
+        tools:ignore="RequestInstallPackagesPolicy" /> -->
 
     <application
         android:name=".PureClockApp"
         android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33"
         android:allowBackup="true"
         android:defaultToDeviceProtectedStorage="true"
         android:directBootAware="true"
@@ -56,7 +58,6 @@
 
         <activity-alias
             android:name=".MainActivityAliasDefault"
-            android:directBootAware="true"
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"

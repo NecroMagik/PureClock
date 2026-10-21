@@ -15,6 +15,8 @@ import android.os.Vibrator
 import androidx.core.net.toUri
 import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
+import com.necromagik.pureclock.util.OriginIslandHelper.attachOriginIslandFlags
+import com.necromagik.pureclock.util.ScenaryExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,8 +36,11 @@ class AlarmService : Service() {
         val action = intent?.action
         val alarmId = intent?.getLongExtra("EXTRA_ALARM_ID", -1L) ?: -1L
 
-        // 1. Обработка кнопок из Heads-Up Уведомления
+        // 1. Обработка кнопок из Heads-Up Уведомления / Острова Origin
         if (action == NoticeCenter.ACTION_DISMISS_ALARM) {
+            if (alarmId != -1L) {
+                ScenaryExecutor.executeForAlarm(this, alarmId)
+            }
             stopSelf()
             return START_NOT_STICKY
         }
@@ -62,9 +67,12 @@ class AlarmService : Service() {
         val now = LocalTime.now()
         val timeText = String.format(Locale.ROOT, "%02d:%02d", now.hour, now.minute)
 
-        // 2. Старт единого Foreground Service с явным типом SPECIAL_USE
+        // 2. Старт единого Foreground Service с продвижением в динамический остров Origin
         val noticeCenter = NoticeCenter(this)
-        val activeNotification = noticeCenter.buildActiveAlarmNotification(alarmId, label, timeText)
+        val activeNotification = noticeCenter
+            .buildActiveAlarmNotification(alarmId, label, timeText)
+            .attachOriginIslandFlags(chipText = timeText)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
