@@ -69,6 +69,7 @@ import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewMode
 import kotlinx.coroutines.delay
 import java.util.Locale
+import kotlin.time.Duration.Companion.milliseconds
 
 val QuickTimerPresets = listOf(
     1L to "1 мин",
@@ -88,7 +89,7 @@ private enum class TimerSubTab(val title: String) {
 @Composable
 fun TimerScreen(
     timerViewModel: TimerViewModel,
-    onOpenSettings: () -> Unit = {},
+    @Suppress("unused") onOpenSettings: () -> Unit = {},
     onTimerStateChanged: (isRunning: Boolean, action: () -> Unit) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
@@ -107,7 +108,6 @@ fun TimerScreen(
         allScenarios.filter { it.targetType == ScenaryTargetType.TIMER }
     }
 
-    // Автоматически создаём карточку таймера для новых сценарных таймеров из ScenaryScreen
     LaunchedEffect(timerScenarios, timersList, timerBindings) {
         val boundScenarioIds = timerBindings.values.toSet()
         timerScenarios.forEach { scen ->
@@ -220,7 +220,6 @@ fun TimerScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Динамический переключатель "Основные" | "Сценарий"
         AnimatedVisibility(
             visible = hasAnyScenarioTimers,
             enter = fadeIn(tween(250)) + expandVertically(),
@@ -705,7 +704,7 @@ private fun InteractiveDigitPicker(
 
     LaunchedEffect(isFocused) {
         if (isFocused) {
-            delay(50)
+            delay(50.milliseconds)
             focusRequester.requestFocus()
         }
     }
@@ -1183,9 +1182,9 @@ private fun TimerGridItemCard(
 private fun RollingTimeText(
     formattedTime: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier,
     fontWeight: FontWeight = FontWeight.Bold,
-    color: Color = MaterialTheme.colorScheme.onSurface,
-    modifier: Modifier = Modifier
+    color: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Row(
         modifier = modifier,

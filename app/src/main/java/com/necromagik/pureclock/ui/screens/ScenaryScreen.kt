@@ -25,18 +25,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.necromagik.pureclock.data.model.*
 import com.necromagik.pureclock.data.repository.ScenaryRepository
 import com.necromagik.pureclock.ui.animation.bounceClick
+import com.necromagik.pureclock.ui.components.EmptyScenaryState
 import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.SystemThemeUtils
 import com.necromagik.pureclock.ui.theme.pure3DEffect
-import com.necromagik.pureclock.ui.components.EmptyScenaryState
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,7 +60,6 @@ fun ScenaryScreen(
         editingScenario = null
     }
 
-    // Привязываем центральную кнопку док-бара (иконка документа с "+") к открытию конструктора
     LaunchedEffect(Unit) {
         onRegisterFabAction {
             editingScenario = null
@@ -98,7 +97,6 @@ fun ScenaryScreen(
             .fillMaxSize()
             .padding(horizontal = 20.dp)
     ) {
-        // Шапка с быстрыми шаблонами ("Охота за закатом", "Луна в зените" и т.д.)
         Text(
             text = "БЫСТРЫЕ ШАБЛОНЫ СЦЕНАРИЕВ",
             fontSize = 11.sp,
@@ -320,7 +318,6 @@ private fun ScenarioRecipeCard(
                 }
             }
 
-            // Визуализация цепочки кубиков пост-действий
             if (item.actions.isNotEmpty()) {
                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -392,9 +389,6 @@ private fun ScenarioRecipeCard(
     }
 }
 
-// ============================================================================
-// МОДАЛЬНЫЙ КОНСТРУКТОР СЦЕНАРИЯ (ВИЗАРД СБОРКИ КУБИКОВ)
-// ============================================================================
 @Composable
 private fun ScenaryBuilderSheet(
     initialScenario: ScenaryItem?,
@@ -451,7 +445,6 @@ private fun ScenaryBuilderSheet(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // ШАГ 1: К ЧЕМУ ПРИМЕНЯЕМ (БУДИЛЬНИК ИЛИ ТАЙМЕР)
         Text("1. Тип привязки", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = accentColor)
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             ScenaryTargetType.entries.forEachIndexed { index, type ->
@@ -472,7 +465,6 @@ private fun ScenaryBuilderSheet(
             }
         }
 
-        // ШАГ 2: ВЫБОР ТРИГГЕРА И СМЕЩЕНИЯ
         Text("2. Когда запускать?", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = accentColor)
 
         if (targetType == ScenaryTargetType.ALARM) {
@@ -506,7 +498,7 @@ private fun ScenaryBuilderSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = String.format("Время запуска: %02d:%02d", baseHour, baseMinute),
+                        text = String.format(Locale.ROOT, "Время запуска: %02d:%02d", baseHour, baseMinute),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -526,7 +518,6 @@ private fun ScenaryBuilderSheet(
             )
         }
 
-        // ШАГ 3: УСЛОВИЕ СРАБАТЫВАНИЯ
         Text("3. Условие проверки", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = accentColor)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(ScenaryConditionType.entries) { cond ->
@@ -538,7 +529,6 @@ private fun ScenaryBuilderSheet(
             }
         }
 
-        // ШАГ 4: КОНСТРУКТОР КУБИКОВ ПОСТ-ДЕЙСТВИЙ
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -587,7 +577,6 @@ private fun ScenaryBuilderSheet(
                         }
                     }
 
-                    // Переключатель типа действия для данного кубика
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(ScenaryActionType.entries) { actType ->
                             FilterChip(

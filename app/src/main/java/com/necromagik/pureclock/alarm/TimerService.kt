@@ -563,7 +563,7 @@ class TimerService : Service() {
             .setAutoCancel(false)
             .promoteToOriginIsland(
                 chipText = "00:00",
-                targetTimeMillis = null
+                //targetTimeMillis = null
             )
             .build()
             .attachOriginIslandFlags(chipText = "00:00")

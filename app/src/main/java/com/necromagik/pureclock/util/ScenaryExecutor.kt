@@ -4,7 +4,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
@@ -20,9 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.time.DayOfWeek
 import java.time.LocalDate
 
-/**
- * Данные для всплывающего окна пост-срабатывания (Сводка + Чек-лист)
- */
 data class PostTriggerUiPayload(
     val scenarioTitle: String,
     val customMessage: String? = null,
@@ -36,7 +32,6 @@ object ScenaryExecutor {
     private const val TAG = "PureClock_SCENARY_EXEC"
     private const val CHANNEL_ID = "pureclock_scenary_action_channel"
 
-    // Поток для отображения карточки сводки/чек-листа поверх MainScreen
     private val _activePostTriggerPayload = MutableStateFlow<PostTriggerUiPayload?>(null)
     val activePostTriggerPayload: StateFlow<PostTriggerUiPayload?> = _activePostTriggerPayload.asStateFlow()
 
@@ -44,9 +39,6 @@ object ScenaryExecutor {
         _activePostTriggerPayload.value = null
     }
 
-    /**
-     * Запускает выполнение сценария, привязанного к конкретному ID будильника
-     */
     fun executeForAlarm(context: Context, alarmId: Long) {
         val repo = ScenaryRepository.getInstance(context)
         val scenario = repo.getScenarioForAlarm(alarmId) ?: return
@@ -54,9 +46,6 @@ object ScenaryExecutor {
         executeScenario(context, scenario)
     }
 
-    /**
-     * Запускает выполнение сценария, привязанного к конкретному ID таймера
-     */
     fun executeForTimer(context: Context, timerId: String, onChainNextTimer: ((Int, String) -> Unit)? = null) {
         val repo = ScenaryRepository.getInstance(context)
         val scenario = repo.getScenarioForTimer(timerId) ?: return
@@ -64,9 +53,6 @@ object ScenaryExecutor {
         executeScenario(context, scenario, onChainNextTimer)
     }
 
-    /**
-     * Прямой запуск любого сценария (например, для теста из конструктора или после сигнала)
-     */
     fun executeScenario(
         context: Context,
         scenario: ScenaryItem,
@@ -121,7 +107,6 @@ object ScenaryExecutor {
             }
         }
 
-        // Если есть визуальные блоки (сводка, чек-лист или сообщение) — выводим карточку на экран
         if (customMessage != null || briefingTitle != null || checklistItems.isNotEmpty() || nextTimerMin != null) {
             _activePostTriggerPayload.value = PostTriggerUiPayload(
                 scenarioTitle = scenario.title,
@@ -132,9 +117,9 @@ object ScenaryExecutor {
             )
         }
 
-        // Если задано открытие внешнего приложения (например, "Камера" или пакет)
-        if (!appToOpen.isNullOrBlank()) {
-            launchTargetApplication(context, appToOpen!!)
+        val targetApp = appToOpen
+        if (!targetApp.isNullOrBlank()) {
+            launchTargetApplication(context, targetApp)
         }
     }
 
@@ -143,7 +128,7 @@ object ScenaryExecutor {
         val isWeekend = today == DayOfWeek.SATURDAY || today == DayOfWeek.SUNDAY
         return when (condition) {
             ScenaryConditionType.ALWAYS -> true
-            ScenaryConditionType.CLEAR_SKY -> true // Базовый допуск (позже можно связать с погодным API)
+            ScenaryConditionType.CLEAR_SKY -> true
             ScenaryConditionType.WEEKENDS_ONLY -> isWeekend
             ScenaryConditionType.WORKDAYS_ONLY -> !isWeekend
         }
@@ -152,16 +137,14 @@ object ScenaryExecutor {
     private fun sendActionNotification(context: Context, title: String, message: String) {
         try {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    "Сценарии PureClock",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Оповещения пользовательских сценариев"
-                }
-                manager.createNotificationChannel(channel)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Сценарии PureClock",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Оповещения пользовательских сценариев"
             }
+            manager.createNotificationChannel(channel)
 
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
@@ -170,12 +153,9 @@ object ScenaryExecutor {
                 .setStyle(NotificationCompat.BigTextStyle().bigText(message))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .promoteToOriginIsland(
-                    chipText = "Сценарий",
-                    targetTimeMillis = null
-                )
+                .promoteToOriginIsland(chipText = "Сценарий")
                 .build()
-                .attachOriginIslandFlags()
+                .attachOriginIslandFlags(chipText = "Сценарий")
 
             manager.notify(title.hashCode(), notification)
         } catch (e: Exception) {

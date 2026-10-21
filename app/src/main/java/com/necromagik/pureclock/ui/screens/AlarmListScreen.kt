@@ -8,9 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +16,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -30,9 +27,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import com.necromagik.pureclock.alarm.AlarmScheduler
 import com.necromagik.pureclock.data.AlarmEntity
 import com.necromagik.pureclock.data.model.ScenaryItem
@@ -45,6 +42,7 @@ import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.SystemThemeUtils
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.util.PermissionHelper
+import kotlinx.coroutines.delay
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
@@ -53,6 +51,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.time.Duration.Companion.seconds
 
 private val RU_LOCALE = Locale.forLanguageTag("ru")
 
@@ -69,10 +68,6 @@ private enum class AlarmSubTab(val title: String) {
     SCENARY("Сценарий")
 }
 
-/**
- * Единая обёртка для будильников из БД и автономных сценарных будильников,
- * чтобы оба типа подчинялись переключателю "Карточки / Список" и общему режиму выбора.
- */
 private data class UnifiedAlarmEntry(
     val key: String,
     val uiModel: AlarmUiModel,
@@ -81,14 +76,11 @@ private data class UnifiedAlarmEntry(
     val isStandaloneScenario: Boolean = false
 )
 
-/**
- * Состояние диалога подтверждения удаления (1-й и 2-й уровень для сценарных будильников)
- */
 private data class PendingDeletionRequest(
     val entries: List<UnifiedAlarmEntry>,
     val isScenarioTab: Boolean,
     val distinctScenarios: List<ScenaryItem>,
-    val step: Int = 1 // 1 = выбор "Будильники или Сценарии", 2 = выбор конкретных сценариев (если их > 1)
+    val step: Int = 1
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,7 +110,6 @@ fun AlarmListScreen(
         mutableStateOf(prefs.getBoolean("is_alarm_card_view", true))
     }
 
-    // Разделение будильников на "Основные" и "Сценарий"
     val validScenarioIds = remember(scenarios) { scenarios.map { it.id }.toSet() }
     val boundAlarmIds = remember(alarmBindings, validScenarioIds) {
         alarmBindings.filterValues { validScenarioIds.contains(it) }.keys
@@ -205,7 +196,6 @@ fun AlarmListScreen(
         }
     }
 
-    // При смене подвкладки очищаем выделение
     LaunchedEffect(selectedSubTab) {
         selectedEntryKeys = emptySet()
     }
@@ -228,7 +218,7 @@ fun AlarmListScreen(
     LaunchedEffect(Unit) {
         while (true) {
             nowMillis = System.currentTimeMillis()
-            kotlinx.coroutines.delay(1000L)
+            delay(1.seconds)
         }
     }
 
@@ -314,7 +304,6 @@ fun AlarmListScreen(
         ) {
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Динамический переключатель вкладок "Основные" | "Сценарий"
             AnimatedVisibility(
                 visible = hasAnyScenarioAlarms && !isSelectionMode,
                 enter = fadeIn(tween(250)) + expandVertically(),
@@ -474,7 +463,7 @@ fun AlarmListScreen(
                                         onClick = {
                                             val newMode = !isCardView
                                             isCardView = newMode
-                                            prefs.edit().putBoolean("is_alarm_card_view", newMode).apply()
+                                            prefs.edit { putBoolean("is_alarm_card_view", newMode) }
                                         },
                                         modifier = Modifier.bounceClick()
                                     ) {
@@ -494,7 +483,6 @@ fun AlarmListScreen(
                                 if (dbAlarm.isEnabled && dbAlarm.skippedDateMillis == null && (dbAlarm.daysOfWeek != 0 || !dbAlarm.extraDatesStr.isNullOrBlank())) {
                                     alarmToDisable = dbAlarm
                                 } else {
-                                    // Если будильник был в состоянии "Пропущен сегодня", повторный клик возвращает его в обычный активный режим или выключает
                                     onToggleAlarm(dbAlarm, !dbAlarm.isEnabled || dbAlarm.skippedDateMillis != null)
                                 }
                             } else if (entry.linkedScenario != null) {
@@ -509,7 +497,6 @@ fun AlarmListScreen(
                             }
                         }
 
-                        // Единая сетка карточек или список как для "Основные", так и для "Сценарий"
                         AnimatedContent(
                             targetState = isCardView,
                             transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
@@ -579,7 +566,6 @@ fun AlarmListScreen(
         }
     }
 
-    // ДИАЛОГ ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ (Обычный + Двухэтапный для сценарных будильников)
     pendingDeletion?.let { req ->
         var selectedScenarioIdsToDelete by remember(req) {
             mutableStateOf(req.distinctScenarios.map { it.id }.toSet())
@@ -623,7 +609,6 @@ fun AlarmListScreen(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                         )
 
-                        // Вариант 1: Удалить только сам будильник(и), оставив сценарий в конструкторе
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -635,7 +620,6 @@ fun AlarmListScreen(
                                     if (dbToDelete.isNotEmpty()) {
                                         onDeleteAlarms(dbToDelete)
                                     }
-                                    // Если среди выбранных были чисто автономные сценарии без БД-будильника
                                     req.entries.filter { it.isStandaloneScenario }.forEach {
                                         it.linkedScenario?.let { sc -> scenaryRepository.deleteScenario(sc.id) }
                                     }
@@ -665,7 +649,6 @@ fun AlarmListScreen(
                             }
                         }
 
-                        // Вариант 2: Удалить целый сценарий (или перейти к выбору из нескольких сценариев)
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.12f)),
@@ -673,7 +656,6 @@ fun AlarmListScreen(
                                 .fillMaxWidth()
                                 .bounceClick {
                                     if (req.distinctScenarios.size > 1) {
-                                        // Переход ко 2-му подтверждению: какой именно сценарий (или оба) удалить
                                         pendingDeletion = req.copy(step = 2)
                                     } else {
                                         val scenId = req.distinctScenarios.first().id
@@ -719,7 +701,6 @@ fun AlarmListScreen(
                         }
                     }
                 } else {
-                    // ШАГ 2: Выбор конкретного сценария или всех сразу, если затронуто несколько сценариев
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "Отметьте сценарии, которые нужно полностью удалить:",
@@ -836,7 +817,6 @@ fun AlarmListScreen(
         )
     }
 
-    // ДИАЛОГ ПРОПУСКА БЛИЖАЙШЕГО СИГНАЛА ИЛИ ПОЛНОГО ОТКЛЮЧЕНИЯ
     alarmToDisable?.let { alarm ->
         val nextTriggerMillis = remember(alarm) { scheduler.calculateTriggerTime(alarm) }
         val dateText = remember(nextTriggerMillis) {
@@ -997,11 +977,12 @@ private fun AlarmEntity.toUiModel(): AlarmUiModel {
 
     val extraDates = parseExtraDates()
     val excludedDates = parseExcludedDates()
-    val isSkipped = isEnabled && skippedDateMillis != null
+    val skippedMillis = skippedDateMillis
+    val isSkipped = isEnabled && skippedMillis != null
 
     val formattedDays = when {
         isSkipped -> {
-            val date = Instant.ofEpochMilli(skippedDateMillis!!).atZone(systemZone).toLocalDate()
+            val date = Instant.ofEpochMilli(skippedMillis).atZone(systemZone).toLocalDate()
             "Пропущен: ${date.format(DateTimeFormatter.ofPattern("d MMM", RU_LOCALE))}"
         }
         daysOfWeek != 0 -> {

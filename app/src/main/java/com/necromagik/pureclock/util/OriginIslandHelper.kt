@@ -17,6 +17,7 @@ object OriginIslandHelper {
     private const val EXTRA_SHORT_CRITICAL_TEXT = "android.shortCriticalText"
     private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
+    @Suppress("unused")
     fun canPostLiveUpdates(context: Context): Boolean {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
         return try {
@@ -27,6 +28,7 @@ object OriginIslandHelper {
         }
     }
 
+    @Suppress("unused")
     fun openLiveUpdatesSettings(context: Context) {
         try {
             val intent = Intent("android.settings.APP_PROMOTED_NOTIFICATIONS_SETTINGS").apply {
@@ -48,9 +50,7 @@ object OriginIslandHelper {
     }
 
     fun NotificationCompat.Builder.promoteToOriginIsland(
-        chipText: String? = null,
-        targetTimeMillis: Long? = null,
-        isCountDown: Boolean = true
+        chipText: String? = null
     ): NotificationCompat.Builder {
         this.setOngoing(true)
         this.setColorized(false)
@@ -91,9 +91,7 @@ object OriginIslandHelper {
     }
 
     fun Notification.attachOriginIslandFlags(
-        chipText: String? = null,
-        targetTimeMillis: Long? = null,
-        isCountDown: Boolean = true
+        chipText: String? = null
     ): Notification {
         this.flags = this.flags or Notification.FLAG_ONGOING_EVENT or FLAG_PROMOTED_ONGOING
         this.color = 0

@@ -20,7 +20,7 @@ class ScenaryRepository private constructor(context: Context) {
     private val _scenarios = MutableStateFlow(loadFromStorage())
     val scenariosFlow: StateFlow<List<ScenaryItem>> = _scenarios.asStateFlow()
 
-    private val _alarmBindings = MutableStateFlow(loadBindings(KEY_ALARM_BINDINGS))
+    private val _alarmBindings = MutableStateFlow(loadAlarmBindings())
     val alarmBindingsFlow: StateFlow<Map<Long, String>> = _alarmBindings.asStateFlow()
 
     private val _timerBindings = MutableStateFlow(loadTimerBindings())
@@ -51,8 +51,8 @@ class ScenaryRepository private constructor(context: Context) {
         }
     }
 
-    private fun loadBindings(key: String): Map<Long, String> {
-        val json = prefs.getString(key, null) ?: return emptyMap()
+    private fun loadAlarmBindings(): Map<Long, String> {
+        val json = prefs.getString(KEY_ALARM_BINDINGS, null) ?: return emptyMap()
         return try {
             val type = object : TypeToken<Map<Long, String>>() {}.type
             gson.fromJson<Map<Long, String>>(json, type) ?: emptyMap()

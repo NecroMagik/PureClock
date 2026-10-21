@@ -71,11 +71,11 @@ fun AlarmItem(
     val themeConfig = LocalPureClockConfig.current
     val accentColor = themeConfig.accentColor
     val skippedColor = remember(accentColor) {
-        // Тёплый полутон между системным акцентом и янтарным для состояния "Пропущен сегодня"
         Color(
             red = (accentColor.red * 0.55f + 1.0f * 0.45f).coerceIn(0f, 1f),
             green = (accentColor.green * 0.55f + 0.72f * 0.45f).coerceIn(0f, 1f),
-            blue = (accentColor.blue * 0.55f + 0.30f * 0.45f).coerceIn(0f, 1f),
+            blue = (accentColor.blue * 0.55f + 0.30f
+                    * 0.45f).coerceIn(0f, 1f),
             alpha = 0.85f
         )
     }
@@ -84,7 +84,6 @@ fun AlarmItem(
         RoundedCornerShape(themeConfig.cardCornerRadius)
     }
 
-    // Отложенный на сегодня будильник остаётся приподнятым (1.01f), но чуть спокойнее обычного (1.02f)
     val targetScale = when {
         !alarm.isEnabled -> 1.0f
         alarm.isSkippedToday -> 1.01f
@@ -161,12 +160,7 @@ fun AlarmItem(
             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
         val timings = if (isTurningOn) longArrayOf(0, 25, 35, 25) else longArrayOf(0, 80)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createWaveform(timings, -1))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(timings, -1)
-        }
+        vibrator.vibrate(VibrationEffect.createWaveform(timings, -1))
     }
 
     Box(
@@ -230,7 +224,6 @@ fun AlarmItem(
                     )
 
                     if (isSelectionMode) {
-                        // В режиме редактирования: сверху чекбокс (на месте карандаша), а прямо под ним — урна в стиле карандаша
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -334,7 +327,6 @@ fun AlarmItem(
                     enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.85f),
                     exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.85f)
                 ) {
-                    // В списке урна появляется рядом с чекбоксом, который заменяет переключатель
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)

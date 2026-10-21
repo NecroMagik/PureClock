@@ -8,7 +8,7 @@ import java.util.UUID
  * Категория сценария (определяет, в какой вкладке появится связанная сущность)
  */
 @Keep
-enum class ScenaryTargetType(val title: String, val subtitle: String) {
+enum class ScenaryTargetType(val title: String, @Suppress("unused") val subtitle: String) {
     ALARM("Сценарный будильник", "Привязка ко времени или астрономическому событию"),
     TIMER("Сценарный таймер", "Цепочка отсчёта с действиями по завершении")
 }
@@ -47,7 +47,7 @@ enum class ScenaryConditionType(val title: String) {
 @Keep
 enum class ScenaryActionType(
     val title: String,
-    val description: String,
+    @Suppress("unused") val description: String,
     val defaultParamHint: String
 ) {
     CUSTOM_NOTIFICATION(
@@ -129,11 +129,11 @@ data class ScenaryItem(
             }
             ScenaryTargetType.ALARM -> {
                 if (triggerType == ScenaryTriggerType.FIXED_TIME) {
-                    String.format("Будильник • %02d:%02d", baseHour, baseMinute)
+                    String.format(Locale.ROOT, "Будильник • %02d:%02d", baseHour, baseMinute)
                 } else {
                     val offsetText = when {
                         offsetMinutes < 0 -> "за ${-offsetMinutes} мин до"
-                        offsetMinutes > 0 -> "через +${offsetMinutes} мин после"
+                        offsetMinutes > 0 -> "через +$offsetMinutes мин после"
                         else -> "ровно в момент"
                     }
                     "${triggerType.title} ($offsetText)"
