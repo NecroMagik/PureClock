@@ -75,10 +75,25 @@ class SettingsManager private constructor(context: Context) {
         set(value) {
             _ifRelease.value = value
             prefs.edit().putInt(KEY_IF_RELEASE, value).apply()
+            if (value == 0) {
+                hasPlayedScenaryDockIntro = false
+            }
         }
 
     val isScenaryPublic: Boolean
         get() = ifRelease == 1
+
+    private val _hasPlayedScenaryDockIntro = MutableStateFlow(
+        prefs.getBoolean(KEY_SCENARY_DOCK_INTRO_PLAYED, false)
+    )
+    val hasPlayedScenaryDockIntroFlow: StateFlow<Boolean> = _hasPlayedScenaryDockIntro.asStateFlow()
+
+    var hasPlayedScenaryDockIntro: Boolean
+        get() = _hasPlayedScenaryDockIntro.value
+        set(value) {
+            _hasPlayedScenaryDockIntro.value = value
+            prefs.edit().putBoolean(KEY_SCENARY_DOCK_INTRO_PLAYED, value).apply()
+        }
 
     companion object {
         private const val KEY_ANALOG_STYLE = "analog_clock_style"
@@ -94,6 +109,7 @@ class SettingsManager private constructor(context: Context) {
         private const val KEY_DEPTH_INTENSITY = "depth_intensity_dp"
         private const val KEY_IF_RELEASE = "if_release_scenary_flag"
         private const val KEY_START_MAIN_TAB = "start_main_tab_index"
+        private const val KEY_SCENARY_DOCK_INTRO_PLAYED = "scenary_dock_intro_played"
 
         @Volatile
         private var INSTANCE: SettingsManager? = null

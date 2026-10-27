@@ -9,11 +9,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -24,7 +29,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 enum class BottomBarTab {
-    ALARM, WORLD_CLOCK, TIMER, STOPWATCH, SETTINGS
+    ALARM, WORLD_CLOCK, TIMER, STOPWATCH, SCENARY, SETTINGS
 }
 
 @Composable
@@ -94,19 +99,16 @@ fun Pure3DIcon(
                 // 1. БУДИЛЬНИК: ВЫРАЖЕННАЯ ТРЯСКА + МОЩНЫЕ WI-FI ВОЛНЫ СЛЕВА/СПРАВА
                 // ============================================================
                 BottomBarTab.ALARM -> {
-                    // Размашистая вибрация корпуса
                     val shakePhase = (1f - tapAnim.value) * sin(tapAnim.value * Math.PI * 8).toFloat()
                     val totalAngle = shakePhase * 24f
 
                     rotate(totalAngle, pivot = center) {
                         val bodyRadius = w * 0.38f
 
-                        // --- ЯРКИЕ WI-FI ВОЛНЫ СИГНАЛА СЛЕВА И СПРАВА ---
                         if (isSelected) {
                             val waveProgress = tapAnim.value
                             val waveAlpha = (1f - waveProgress).coerceIn(0f, 1f)
 
-                            // Волны слева
                             val leftRadius1 = bodyRadius + (waveProgress * 10.dp.toPx())
                             val leftRadius2 = bodyRadius + (waveProgress * 16.dp.toPx())
                             drawArc(
@@ -128,7 +130,6 @@ fun Pure3DIcon(
                                 style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
                             )
 
-                            // Волны справа
                             val rightRadius1 = bodyRadius + (waveProgress * 10.dp.toPx())
                             val rightRadius2 = bodyRadius + (waveProgress * 16.dp.toPx())
                             drawArc(
@@ -151,7 +152,6 @@ fun Pure3DIcon(
                             )
                         }
 
-                        // Ножки
                         val legLen = h * 0.14f
                         drawLine(
                             color = currentColor,
@@ -168,7 +168,6 @@ fun Pure3DIcon(
                             cap = StrokeCap.Round
                         )
 
-                        // Звонки (полусферы)
                         val bellW = w * 0.30f
                         val bellH = h * 0.16f
 
@@ -194,7 +193,6 @@ fun Pure3DIcon(
                             )
                         }
 
-                        // Молоточек
                         drawLine(
                             currentColor,
                             Offset(center.x, center.y - bodyRadius),
@@ -203,13 +201,11 @@ fun Pure3DIcon(
                             cap = StrokeCap.Round
                         )
 
-                        // Корпус
                         if (is3D) {
                             drawCircle(Color.Black.copy(alpha = 0.35f), bodyRadius, Offset(center.x, center.y + 2.dp.toPx()))
                         }
                         drawCircle(currentColor, bodyRadius, center, style = Stroke(width = 2.6.dp.toPx()))
 
-                        // Стрелки (10:10)
                         drawLine(currentColor, center, Offset(center.x - bodyRadius * 0.45f, center.y - bodyRadius * 0.35f), strokeWidth = 2.6.dp.toPx(), cap = StrokeCap.Round)
                         drawLine(currentColor, center, Offset(center.x + bodyRadius * 0.52f, center.y - bodyRadius * 0.42f), strokeWidth = 2.2.dp.toPx(), cap = StrokeCap.Round)
                         drawCircle(currentColor, 3.dp.toPx(), center)
@@ -217,7 +213,7 @@ fun Pure3DIcon(
                 }
 
                 // ============================================================
-                // 2. ЧАСЫ: ЧИСТЫЙ ЦИФЕРБЛАТ БЕЗ МЕСИВА ЗАСЕЧЕК + КУРСОРНЫЕ СТРЕЛКИ
+                // 2. ЧАСЫ: ЧИСТЫЙ ЦИФЕРБЛАТ + КУРСОРНЫЕ СТРЕЛКИ
                 // ============================================================
                 BottomBarTab.WORLD_CLOCK -> {
                     val dialRadius = w * 0.44f
@@ -239,17 +235,14 @@ fun Pure3DIcon(
                     val currentMin = baseMinAngle + (randomMinAngle * tapAnim.value)
                     val currentSec = baseSecAngle + (randomSecAngle * tapAnim.value)
 
-                    // Часовая стрелка
                     rotate(currentHour, pivot = center) {
                         drawLine(currentColor, center, Offset(center.x, center.y - dialRadius * 0.52f), strokeWidth = 3.2.dp.toPx(), cap = StrokeCap.Round)
                     }
 
-                    // Минутная стрелка
                     rotate(currentMin, pivot = center) {
                         drawLine(currentColor, center, Offset(center.x, center.y - dialRadius * 0.78f), strokeWidth = 2.4.dp.toPx(), cap = StrokeCap.Round)
                     }
 
-                    // Секундная стрелка
                     rotate(currentSec, pivot = center) {
                         drawLine(currentColor.copy(alpha = 0.9f), Offset(center.x, center.y + dialRadius * 0.18f), Offset(center.x, center.y - dialRadius * 0.88f), strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round)
                     }
@@ -258,10 +251,9 @@ fun Pure3DIcon(
                 }
 
                 // ============================================================
-                // 3. ТАЙМЕР: КИНЕМАТИЧЕСКАЯ ОДНОКРАТНАЯ АНИМАЦИЯ ПЕСКА (БЕЗ БЕСКОНЕЧНОГО ЦИКЛА)
+                // 3. ТАЙМЕР: КИНЕМАТИЧЕСКАЯ ОДНОКРАТНАЯ АНИМАЦИЯ ПЕСКА
                 // ============================================================
                 BottomBarTab.TIMER -> {
-                    // 3D-Переворот часов строго на 180 градусов
                     val flipRotation = selectionProgress * 180f + (tapAnim.value * 180f)
 
                     rotate(flipRotation, pivot = center) {
@@ -284,14 +276,11 @@ fun Pure3DIcon(
                         }
                         drawPath(hourglassPath, color = currentColor, style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round))
 
-                        // Опорные планки
                         drawLine(currentColor, Offset(center.x - glassW - 1.5.dp.toPx(), center.y - glassH), Offset(center.x + glassW + 1.5.dp.toPx(), center.y - glassH), strokeWidth = 2.6.dp.toPx(), cap = StrokeCap.Round)
                         drawLine(currentColor, Offset(center.x - glassW - 1.5.dp.toPx(), center.y + glassH), Offset(center.x + glassW + 1.5.dp.toPx(), center.y + glassH), strokeWidth = 2.6.dp.toPx(), cap = StrokeCap.Round)
 
-                        // --- ФИЗИКА ПЕСКА (Анимируется строго при tapAnim/selectionProgress, затем замирает!) ---
                         val flowProgress = if (tapAnim.value > 0f && tapAnim.value < 1f) tapAnim.value else selectionProgress
 
-                        // Upper Sand Mass
                         val topSandFactor = (1f - flowProgress * 0.8f).coerceIn(0.2f, 1f)
                         val topSandPath = Path().apply {
                             moveTo(center.x - glassW * topSandFactor * 0.7f, center.y - glassH * topSandFactor * 0.7f)
@@ -302,7 +291,6 @@ fun Pure3DIcon(
                         }
                         drawPath(topSandPath, color = currentColor.copy(alpha = 0.75f), style = Fill)
 
-                        // Lower Sand Mass
                         val bottomSandFactor = (0.2f + (flowProgress * 0.75f)).coerceIn(0.2f, 0.95f)
                         val bottomSandPath = Path().apply {
                             moveTo(center.x - glassW * 0.85f, center.y + glassH * 0.92f)
@@ -313,7 +301,6 @@ fun Pure3DIcon(
                         }
                         drawPath(bottomSandPath, color = currentColor, style = Fill)
 
-                        // Струйка видна ТОЛЬКО во время анимации пересыпания
                         if (tapAnim.value in 0.01f..0.98f) {
                             drawLine(
                                 color = currentColor,
@@ -327,12 +314,15 @@ fun Pure3DIcon(
                 }
 
                 // ============================================================
-                // 4. СЕКУНДОМЕР И 5. НАСТРОЙКИ
+                // 4. СЕКУНДОМЕР
                 // ============================================================
                 BottomBarTab.STOPWATCH -> {
                     val handAngle = selectionProgress * 360f
                     val buttonPress = if (isSelected) 2.dp.toPx() * (1f - tapAnim.value) else 0f
 
+                    if (is3D) {
+                        drawCircle(Color.Black.copy(alpha = 0.35f), w * 0.40f, Offset(center.x, center.y + h * 0.05f + 2.dp.toPx()))
+                    }
                     drawCircle(currentColor, w * 0.40f, Offset(center.x, center.y + h * 0.05f), style = Stroke(2.4.dp.toPx()))
                     drawLine(currentColor, Offset(center.x, center.y - h * 0.33f + buttonPress), Offset(center.x, center.y - h * 0.44f + buttonPress), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
 
@@ -342,6 +332,121 @@ fun Pure3DIcon(
                     drawCircle(currentColor, 2.8.dp.toPx(), Offset(center.x, center.y + h * 0.05f))
                 }
 
+                // ============================================================
+                // 5. СЦЕНАРИИ: 3D-КАРТОЧКА С ВЫРЕЗОМ + КАСКАД СТРОК И ВРАЩЕНИЕ "+"
+                // ============================================================
+                BottomBarTab.SCENARY -> {
+                    val docLeft = w * 0.12f
+                    val docTop = h * 0.12f
+                    val docRight = w * 0.80f
+                    val docBottom = h * 0.90f
+                    val corner = w * 0.16f
+
+                    val badgeCenter = Offset(w * 0.78f, h * 0.22f)
+                    val cutoutRadius = w * 0.24f
+
+                    val docPath = Path().apply {
+                        addRoundRect(
+                            RoundRect(
+                                rect = Rect(docLeft, docTop, docRight, docBottom),
+                                cornerRadius = CornerRadius(corner, corner)
+                            )
+                        )
+                    }
+                    val cutoutPath = Path().apply {
+                        addOval(Rect(center = badgeCenter, radius = cutoutRadius))
+                    }
+                    val finalDocPath = Path.combine(PathOperation.Difference, docPath, cutoutPath)
+
+                    // 3D-тень глубины как у будильника и часов
+                    if (is3D) {
+                        val shadowPath = Path().apply {
+                            addPath(finalDocPath, Offset(0f, 2.dp.toPx()))
+                        }
+                        drawPath(
+                            path = shadowPath,
+                            color = Color.Black.copy(alpha = 0.35f),
+                            style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        )
+                    }
+
+                    // Мягкое свечение контура, если вкладка выбрана
+                    if (isGlow && isSelected) {
+                        drawPath(
+                            path = finalDocPath,
+                            color = currentColor.copy(alpha = 0.22f),
+                            style = Fill
+                        )
+                    }
+
+                    drawPath(
+                        path = finalDocPath,
+                        color = currentColor,
+                        style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+
+                    // Каскадное вычерчивание 3 строк сценария при тапе
+                    val lineStart = w * 0.26f
+                    val lineShortEnd = w * 0.48f
+                    val lineFullEnd = w * 0.65f
+                    val lineStroke = 2.1.dp.toPx()
+
+                    val p1 = ((tapAnim.value / 0.45f).coerceIn(0f, 1f)).let { if (tapTrigger == 0) 1f else it }
+                    val p2 = (((tapAnim.value - 0.15f) / 0.50f).coerceIn(0f, 1f)).let { if (tapTrigger == 0) 1f else it }
+                    val p3 = (((tapAnim.value - 0.30f) / 0.55f).coerceIn(0f, 1f)).let { if (tapTrigger == 0) 1f else it }
+
+                    if (p1 > 0.05f) {
+                        drawLine(
+                            color = currentColor,
+                            start = Offset(lineStart, h * 0.38f),
+                            end = Offset(lineStart + (lineShortEnd - lineStart) * p1, h * 0.38f),
+                            strokeWidth = lineStroke,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    if (p2 > 0.05f) {
+                        drawLine(
+                            color = currentColor,
+                            start = Offset(lineStart, h * 0.56f),
+                            end = Offset(lineStart + (lineFullEnd - lineStart) * p2, h * 0.56f),
+                            strokeWidth = lineStroke,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    if (p3 > 0.05f) {
+                        drawLine(
+                            color = currentColor,
+                            start = Offset(lineStart, h * 0.74f),
+                            end = Offset(lineStart + (lineFullEnd - lineStart) * p3, h * 0.74f),
+                            strokeWidth = lineStroke,
+                            cap = StrokeCap.Round
+                        )
+                    }
+
+                    // Вращение плюса/звезды в правом верхнем вырезе (на 90° при выборе + 180° на тап)
+                    val plusAngle = selectionProgress * 90f + (tapAnim.value * 180f)
+                    val arm = w * 0.13f
+                    rotate(plusAngle, pivot = badgeCenter) {
+                        drawLine(
+                            color = currentColor,
+                            start = Offset(badgeCenter.x - arm, badgeCenter.y),
+                            end = Offset(badgeCenter.x + arm, badgeCenter.y),
+                            strokeWidth = 2.2.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        drawLine(
+                            color = currentColor,
+                            start = Offset(badgeCenter.x, badgeCenter.y - arm),
+                            end = Offset(badgeCenter.x, badgeCenter.y + arm),
+                            strokeWidth = 2.2.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
+
+                // ============================================================
+                // 6. НАСТРОЙКИ
+                // ============================================================
                 BottomBarTab.SETTINGS -> {
                     val gearRotation = selectionProgress * 90f + (tapAnim.value * 180f)
 

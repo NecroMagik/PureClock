@@ -21,10 +21,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.WorldClockRepository
 import com.necromagik.pureclock.ui.animation.bounceClick
+import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import kotlinx.coroutines.Dispatchers
@@ -35,13 +37,16 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DevScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onTriggerDockUnlockAnimation: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val themeConfig = LocalPureClockConfig.current
     val accentColor = themeConfig.accentColor
     val scope = rememberCoroutineScope()
     val settingsManager = remember { SettingsManager.getInstance(context) }
+    val ifRelease by settingsManager.ifReleaseFlow.collectAsState()
+
     val db = remember { AppDatabase.getDatabase(context) }
     val repository = remember { WorldClockRepository(db.cityDao(), context) }
 
@@ -102,6 +107,119 @@ fun DevScreen(
         ) {
             item {
                 Text(
+                    text = "ЛАБОРАТОРИЯ СЦЕНАРИЕВ И ДОК-ПАНЕЛЬ (IF_RELEASE)",
+                    color = accentColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
+
+            // Карточка управления переменной IfRelease (0 или 1)
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pure3DEffect(
+                            shape = cardShape,
+                            accentColor = accentColor,
+                            depthDp = themeConfig.depthIntensityDp,
+                            is3dEnabled = themeConfig.is3dEnabled,
+                            isGlowEnabled = themeConfig.isGlowEnabled,
+                            surfaceColor = MaterialTheme.colorScheme.surface
+                        )
+                        .padding(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(accentColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = accentColor,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Флаг готовности IfRelease = $ifRelease",
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = if (ifRelease == 1) {
+                                            "Вкладка «Сценарии» встроена в док-панель (5 иконок)"
+                                        } else {
+                                            "Скрытый режим (4 иконки, доступ только по коду +10 -5 +3)"
+                                        },
+                                        color = Color.Gray,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            PureSwitch(
+                                checked = ifRelease == 1,
+                                onCheckedChange = { enabled ->
+                                    settingsManager.ifRelease = if (enabled) 1 else 0
+                                }
+                            )
+                        }
+
+                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f))
+
+                        Button(
+                            onClick = {
+                                settingsManager.ifRelease = 1
+                                onTriggerDockUnlockAnimation()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = accentColor,
+                                contentColor = Color.Black
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .bounceClick()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Проиграть анимацию внедрения в док-бар",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Text(
                     text = "СОСТОЯНИЕ СИСТЕМЫ И БАЗ ДАННЫХ",
                     color = accentColor,
                     fontSize = 12.sp,
@@ -126,6 +244,7 @@ fun DevScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         InfoRow(label = "Источник установки", value = installSource.title)
+                        InfoRow(label = "Статус IfRelease", value = "$ifRelease (${if (ifRelease == 1) "PUBLIC" else "HIDDEN"})")
                         InfoRow(label = "Записей городов (cities)", value = "$citiesCount шт.")
                         InfoRow(label = "Сохранённых будильников", value = "$alarmsCount шт.")
                         InfoRow(label = "Стиль времени будильника", value = settingsManager.selectedAlarmPickerStyle.name)
@@ -218,13 +337,9 @@ fun DevScreen(
                     shape = cardShape,
                     onAction = {
                         context.getSharedPreferences("pure_clock_settings", Context.MODE_PRIVATE)
-                            .edit()
-                            .clear()
-                            .apply()
+                            .edit { clear() }
                         context.getSharedPreferences("pure_clock_db_sync", Context.MODE_PRIVATE)
-                            .edit()
-                            .clear()
-                            .apply()
+                            .edit { clear() }
                         Toast.makeText(context, "Настройки сброшены. Перезапустите экран", Toast.LENGTH_SHORT).show()
                     }
                 )

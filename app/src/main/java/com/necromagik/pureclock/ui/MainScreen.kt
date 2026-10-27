@@ -1,12 +1,18 @@
 package com.necromagik.pureclock.ui
 
 import android.app.Activity
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -32,12 +38,15 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
@@ -49,8 +58,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.necromagik.pureclock.data.AlarmEntity
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.bounceClick
+import com.necromagik.pureclock.ui.animation.rememberScenaryDockChoreography
 import com.necromagik.pureclock.ui.components.BottomBarTab
 import com.necromagik.pureclock.ui.components.Pure3DIcon
+import com.necromagik.pureclock.ui.components.ScenaryPostTriggerDialog
 import com.necromagik.pureclock.ui.components.SettingsTopBarIcon
 import com.necromagik.pureclock.ui.screens.AddEditAlarmScreen
 import com.necromagik.pureclock.ui.screens.AlarmListScreen
@@ -61,12 +72,12 @@ import com.necromagik.pureclock.ui.screens.StopwatchScreen
 import com.necromagik.pureclock.ui.screens.TimerScreen
 import com.necromagik.pureclock.ui.screens.WorldClockScreen
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
+import com.necromagik.pureclock.ui.theme.SystemThemeUtils
 import com.necromagik.pureclock.ui.theme.ThemeEngineScreen
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.ui.viewmodel.AlarmViewModel
 import com.necromagik.pureclock.ui.viewmodel.StopwatchViewModel
 import com.necromagik.pureclock.ui.viewmodel.TimerViewModel
-import com.necromagik.pureclock.ui.components.ScenaryPostTriggerDialog
 import com.necromagik.pureclock.util.ScenaryExecutor
 import kotlinx.coroutines.launch
 import java.time.LocalTime
@@ -77,7 +88,7 @@ enum class ClockTab(val title: String, val tabType: BottomBarTab) {
     WORLD_CLOCK("Время", BottomBarTab.WORLD_CLOCK),
     TIMER("Таймер", BottomBarTab.TIMER),
     STOPWATCH("Секундомер", BottomBarTab.STOPWATCH),
-    SCENARY("Сценарии", BottomBarTab.WORLD_CLOCK)
+    SCENARY("Сценарии", BottomBarTab.SCENARY)
 }
 
 enum class ScreenRoute {
@@ -107,6 +118,10 @@ private class NotchedDockShape(
             )
         }
 
+        if (notchRadiusPx <= 0.5f) {
+            return Outline.Generic(basePath)
+        }
+
         val cutoutPath = Path().apply {
             addOval(
                 Rect(
@@ -129,18 +144,27 @@ fun MainScreen(viewModel: AlarmViewModel) {
     val context = LocalContext.current
     val settingsManager = remember { SettingsManager.getInstance(context) }
     val ifRelease by settingsManager.ifReleaseFlow.collectAsState()
+    val hasPlayedScenaryDockIntro by settingsManager.hasPlayedScenaryDockIntroFlow.collectAsState()
     val startMainTab by settingsManager.startMainTabFlow.collectAsState()
 
     val timerViewModel: TimerViewModel = viewModel()
     val stopwatchViewModel: StopwatchViewModel = viewModel()
 
-    // Количество доступных вкладок в пейджере: 4 (или 5, если IfRelease == 1)
+    var dockAnimReplayTrigger by remember { mutableIntStateOf(0) }
+
     val maxPages = if (ifRelease == 1) 5 else 4
     val pagerState = rememberPagerState(initialPage = startMainTab.coerceIn(0, maxPages - 1)) { maxPages }
     val coroutineScope = rememberCoroutineScope()
     val themeConfig = LocalPureClockConfig.current
 
     var isScenaryTabActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(ifRelease) {
+        if (ifRelease == 1 && isScenaryTabActive) {
+            isScenaryTabActive = false
+            pagerState.animateScrollToPage(4)
+        }
+    }
 
     var isAddingAlarm by remember { mutableStateOf(false) }
     var editingAlarm by remember { mutableStateOf<AlarmEntity?>(null) }
@@ -165,11 +189,9 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
     var isUpdateBubbleDismissed by remember { mutableStateOf(false) }
 
-    // Переменная для обработки двойного тапа "Назад" при нахождении на главной странице
     var backPressedOnceTime by remember { mutableLongStateOf(0L) }
     val activity = context as? Activity
 
-    // Обработка жеста "Назад":
     BackHandler(enabled = true) {
         when {
             isAddingAlarm || editingAlarm != null -> {
@@ -180,15 +202,12 @@ fun MainScreen(viewModel: AlarmViewModel) {
             currentRoute == ScreenRoute.DEV -> currentRoute = ScreenRoute.MAIN
             currentRoute == ScreenRoute.SETTINGS -> currentRoute = ScreenRoute.MAIN
             isScenaryTabActive -> {
-                // Если открыта скрытая вкладка сценариев, возвращаем на главную
                 isScenaryTabActive = false
             }
             pagerState.currentPage != startMainTab -> {
-                // Если открыта неглавная вкладка в пейджере — возврат на главную за 1 свайп
                 coroutineScope.launch { pagerState.animateScrollToPage(startMainTab) }
             }
             else -> {
-                // Если мы находимся на главной странице: двойной свайп для выхода из приложения
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - backPressedOnceTime < 2000) {
                     activity?.finish()
@@ -311,13 +330,34 @@ fun MainScreen(viewModel: AlarmViewModel) {
 
                         ScreenRoute.DEV -> {
                             DevScreen(
-                                onBack = { currentRoute = ScreenRoute.MAIN }
+                                onBack = { currentRoute = ScreenRoute.MAIN },
+                                onTriggerDockUnlockAnimation = {
+                                    settingsManager.hasPlayedScenaryDockIntro = false
+                                    settingsManager.ifRelease = 1
+                                    dockAnimReplayTrigger += 1
+                                    currentRoute = ScreenRoute.MAIN
+                                }
                             )
                         }
 
                         ScreenRoute.MAIN -> {
                             val isBetaUpdateAvailable by settingsManager.isBetaUpdateAvailableFlow.collectAsState()
                             val latestBetaRelease by settingsManager.latestBetaReleaseFlow.collectAsState()
+
+                            val dockChoreography = rememberScenaryDockChoreography(
+                                isFiveTabMode = ifRelease == 1,
+                                hasPlayedIntro = hasPlayedScenaryDockIntro,
+                                replayTrigger = dockAnimReplayTrigger,
+                                onIntroFinished = {
+                                    settingsManager.hasPlayedScenaryDockIntro = true
+                                }
+                            )
+
+                            LaunchedEffect(dockChoreography.isScenarySlotVisible) {
+                                if (dockChoreography.isScenarySlotVisible && (!hasPlayedScenaryDockIntro || dockAnimReplayTrigger > 0)) {
+                                    triggerDockRevealHaptic(context)
+                                }
+                            }
 
                             val activeTab = if (isScenaryTabActive) {
                                 ClockTab.SCENARY
@@ -370,7 +410,12 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             .padding(start = 8.dp, end = 8.dp, bottom = 20.dp),
                                         contentAlignment = Alignment.BottomCenter
                                     ) {
-                                        val dockShape = remember { NotchedDockShape(cornerRadius = 32.dp, notchRadius = 34.dp) }
+                                        val dockShape = remember(dockChoreography.notchRadius) {
+                                            NotchedDockShape(
+                                                cornerRadius = 32.dp,
+                                                notchRadius = dockChoreography.notchRadius
+                                            )
+                                        }
 
                                         Box(
                                             modifier = Modifier
@@ -380,16 +425,31 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     shape = dockShape,
                                                     accentColor = themeConfig.accentColor,
                                                     surfaceColor = MaterialTheme.colorScheme.surface,
-                                                    depthDp = themeConfig.depthIntensityDp,
+                                                    depthDp = themeConfig.depthIntensityDp + (dockChoreography.dockHighlightAlpha * 6f).dp,
                                                     is3dEnabled = themeConfig.is3dEnabled,
-                                                    isGlowEnabled = themeConfig.isGlowEnabled
+                                                    isGlowEnabled = themeConfig.isGlowEnabled || dockChoreography.dockHighlightAlpha > 0.05f
+                                                )
+                                                .then(
+                                                    if (dockChoreography.dockHighlightAlpha > 0.01f) {
+                                                        Modifier.border(
+                                                            width = (1.5f + dockChoreography.dockHighlightAlpha * 1.5f).dp,
+                                                            brush = Brush.horizontalGradient(
+                                                                colors = listOf(
+                                                                    themeConfig.accentColor.copy(alpha = 0.25f * dockChoreography.dockHighlightAlpha),
+                                                                    themeConfig.accentColor.copy(alpha = 0.95f * dockChoreography.dockHighlightAlpha),
+                                                                    themeConfig.accentColor.copy(alpha = 1f * dockChoreography.dockHighlightAlpha)
+                                                                )
+                                                            ),
+                                                            shape = dockShape
+                                                        )
+                                                    } else Modifier
                                                 )
                                         ) {
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .padding(horizontal = 10.dp),
-                                                horizontalArrangement = Arrangement.SpaceAround,
+                                                    .padding(horizontal = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceEvenly,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 NavTabItem3D(
@@ -411,7 +471,9 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     modifier = Modifier.weight(1f)
                                                 )
 
-                                                Spacer(modifier = Modifier.width(56.dp))
+                                                if (dockChoreography.centerSpacerWidth > 0.5.dp) {
+                                                    Spacer(modifier = Modifier.width(dockChoreography.centerSpacerWidth))
+                                                }
 
                                                 NavTabItem3D(
                                                     tab = ClockTab.TIMER,
@@ -431,21 +493,79 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     },
                                                     modifier = Modifier.weight(1f)
                                                 )
-                                                if (ifRelease == 1) {
-                                                    NavTabItem3D(
-                                                        tab = ClockTab.SCENARY,
-                                                        isSelected = !isScenaryTabActive && pagerState.currentPage == 4,
+
+                                                // СПРАВА НАЛЕВО ВЫЕЗЖАЕТ 5-Я ВКЛАДКА "СЦЕНАРИИ", СДВИГАЯ ОСТАЛЬНЫЕ 4 ИКОНКИ ВЛЕВО
+                                                AnimatedVisibility(
+                                                    visible = dockChoreography.isScenarySlotVisible,
+                                                    enter = expandHorizontally(
+                                                        expandFrom = Alignment.End,
+                                                        animationSpec = spring(
+                                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                                            stiffness = Spring.StiffnessLow
+                                                        )
+                                                    ) + slideInHorizontally(
+                                                        initialOffsetX = { fullWidth -> fullWidth },
+                                                        animationSpec = spring(
+                                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                            stiffness = Spring.StiffnessLow
+                                                        )
+                                                    ) + fadeIn(tween(260)),
+                                                    exit = shrinkHorizontally(shrinkTowards = Alignment.End) +
+                                                            slideOutHorizontally(targetOffsetX = { fullWidth -> fullWidth }) +
+                                                            fadeOut(tween(200)),
+                                                    modifier = Modifier.weight(
+                                                        dockChoreography.iconRevealProgress.coerceAtLeast(0.01f)
+                                                    )
+                                                ) {
+                                                    ScenaryDockTabItem3D(
+                                                        isSelected = isScenaryTabActive || pagerState.currentPage == 4,
+                                                        revealProgress = dockChoreography.iconRevealProgress,
+                                                        wiggleDegrees = dockChoreography.iconWiggleDegrees,
+                                                        spotlightRingProgress = dockChoreography.spotlightRingProgress,
                                                         onClick = {
-                                                            isScenaryTabActive = false
-                                                            coroutineScope.launch { pagerState.animateScrollToPage(4) }
+                                                            if (ifRelease == 1) {
+                                                                isScenaryTabActive = false
+                                                                coroutineScope.launch { pagerState.animateScrollToPage(4) }
+                                                            } else {
+                                                                isScenaryTabActive = true
+                                                            }
                                                         },
-                                                        modifier = Modifier.weight(1f)
+                                                        modifier = Modifier.fillMaxWidth()
                                                     )
                                                 }
                                             }
                                         }
 
+                                        // Всплывающий презентационный бейдж "НОВОЕ" над правым краем док-бара
+                                        AnimatedVisibility(
+                                            visible = dockChoreography.showNewBadge,
+                                            enter = scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
+                                                    slideInVertically(initialOffsetY = { it / 2 }) +
+                                                    fadeIn(tween(220)),
+                                            exit = scaleOut(targetScale = 0.8f) + fadeOut(tween(300)),
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(end = 14.dp)
+                                                .offset(y = (-80).dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = themeConfig.accentColor,
+                                                shadowElevation = 8.dp
+                                            ) {
+                                                Text(
+                                                    text = "НОВОЕ",
+                                                    color = SystemThemeUtils.getContrastingColor(themeConfig.accentColor),
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    letterSpacing = 0.8.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        }
+
                                         val isStopwatchTab = activeTab == ClockTab.STOPWATCH
+                                        val secondaryFabOffsetY = dockChoreography.fabOffsetY - 38.dp
 
                                         AnimatedVisibility(
                                             visible = isStopwatchTab && (stopwatchElapsed > 0 && !isStopwatchRunning),
@@ -453,7 +573,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     slideInHorizontally(initialOffsetX = { it }) +
                                                     slideInVertically(initialOffsetY = { it }),
                                             exit = scaleOut() + slideOutHorizontally(targetOffsetX = { it }) + slideOutVertically(targetOffsetY = { it }),
-                                            modifier = Modifier.offset(x = (-84).dp, y = (-78).dp)
+                                            modifier = Modifier.offset(x = (-84).dp, y = secondaryFabOffsetY)
                                         ) {
                                             SmallFloatingActionButton(
                                                 onClick = { stopwatchViewModel.reset() },
@@ -478,7 +598,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     slideInHorizontally(initialOffsetX = { -it }) +
                                                     slideInVertically(initialOffsetY = { it }),
                                             exit = scaleOut() + slideOutHorizontally(targetOffsetX = { -it }) + slideOutVertically(targetOffsetY = { it }),
-                                            modifier = Modifier.offset(x = 84.dp, y = (-78).dp)
+                                            modifier = Modifier.offset(x = 84.dp, y = secondaryFabOffsetY)
                                         ) {
                                             SmallFloatingActionButton(
                                                 onClick = { stopwatchViewModel.recordLap() },
@@ -512,8 +632,12 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                             contentColor = MaterialTheme.colorScheme.onPrimary,
                                             shape = CircleShape,
                                             modifier = Modifier
-                                                .offset(y = (-40).dp)
+                                                .offset(y = dockChoreography.fabOffsetY)
                                                 .size(58.dp)
+                                                .graphicsLayer {
+                                                    scaleX = dockChoreography.fabScale
+                                                    scaleY = dockChoreography.fabScale
+                                                }
                                                 .bounceClick()
                                         ) {
                                             AnimatedContent(
@@ -593,7 +717,13 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     1 -> WorldClockScreen(
                                                         onOpenSettings = { currentRoute = ScreenRoute.SETTINGS },
                                                         onOpenDevScreen = { currentRoute = ScreenRoute.DEV },
-                                                        onOpenScenaryScreen = { isScenaryTabActive = true },
+                                                        onOpenScenaryScreen = {
+                                                            if (ifRelease == 1) {
+                                                                coroutineScope.launch { pagerState.animateScrollToPage(4) }
+                                                            } else {
+                                                                isScenaryTabActive = true
+                                                            }
+                                                        },
                                                         externalShowAddDialog = showAddCityDialog,
                                                         onDialogDismiss = { showAddCityDialog = false }
                                                     )
@@ -709,6 +839,88 @@ fun MainScreen(viewModel: AlarmViewModel) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Вкладка "Сценарии" в док-панели, использующая единый компонент Pure3DIcon(BottomBarTab.SCENARY)
+ * и добавляющая презентационное световое кольцо при первом появлении справа налево.
+ */
+@Composable
+private fun ScenaryDockTabItem3D(
+    isSelected: Boolean,
+    revealProgress: Float,
+    wiggleDegrees: Float,
+    spotlightRingProgress: Float,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val themeConfig = LocalPureClockConfig.current
+    val accentColor = themeConfig.accentColor
+    val defaultColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+    val isHighlighted = isSelected || spotlightRingProgress > 0.05f
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxHeight()
+            .graphicsLayer {
+                alpha = revealProgress.coerceIn(0f, 1f)
+                val entranceScale = 0.72f + 0.28f * revealProgress
+                scaleX = entranceScale
+                scaleY = entranceScale
+                rotationZ = wiggleDegrees
+            }
+            .clickable { onClick() }
+            .bounceClick()
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (spotlightRingProgress in 0.01f..0.99f) {
+                Canvas(modifier = Modifier.size(28.dp)) {
+                    val ringRadius = (size.minDimension * 0.45f) + (size.minDimension * 0.90f * spotlightRingProgress)
+                    val ringAlpha = (1f - spotlightRingProgress).coerceIn(0f, 1f)
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.70f * ringAlpha),
+                        radius = ringRadius,
+                        center = center,
+                        style = Stroke(width = 2.2.dp.toPx() * ringAlpha)
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                accentColor.copy(alpha = 0.35f * ringAlpha),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = ringRadius
+                        ),
+                        radius = ringRadius,
+                        center = center
+                    )
+                }
+            }
+
+            Pure3DIcon(
+                tab = BottomBarTab.SCENARY,
+                isSelected = isHighlighted,
+                onClick = onClick,
+                size = 24.dp,
+                activeColor = accentColor,
+                inactiveColor = defaultColor
+            )
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = ClockTab.SCENARY.title,
+            fontSize = 10.sp,
+            fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Medium,
+            color = if (isHighlighted) accentColor else defaultColor,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }
 
@@ -849,4 +1061,17 @@ private fun NavTabItem3D(
             softWrap = false
         )
     }
+}
+
+private fun triggerDockRevealHaptic(context: Context) {
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vm.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 30, 60, 45), -1))
+    } catch (_: Exception) {}
 }
