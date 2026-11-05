@@ -607,4 +607,38 @@ class SettingsManager private constructor(context: Context) {
             return@withContext null
         }
     }
+
+    fun reloadFromPreferences() {
+        _ifRelease.value = prefs.getInt(KEY_IF_RELEASE, 0)
+        _hasPlayedScenaryDockIntro.value = prefs.getBoolean(KEY_SCENARY_DOCK_INTRO_PLAYED, false)
+        _startMainTab.value = prefs.getInt(KEY_START_MAIN_TAB, 0)
+        _alarmPickerStyle.value = try {
+            AlarmPickerStyle.valueOf(
+                prefs.getString("alarm_time_picker_style", AlarmPickerStyle.DIAL.name)
+                    ?: AlarmPickerStyle.DIAL.name
+            )
+        } catch (_: Exception) {
+            AlarmPickerStyle.DIAL
+        }
+        _themeState.value = ThemeState(
+            themeMode = prefs.getString(KEY_THEME_MODE, "SYSTEM") ?: "SYSTEM",
+            isPureMonocolor = prefs.getBoolean(KEY_PURE_MONOCOLOR, true),
+            accentColorHex = prefs.getString(KEY_ACCENT_COLOR, SystemThemeUtils.SYSTEM_MONET_KEY)
+                ?: SystemThemeUtils.SYSTEM_MONET_KEY,
+            cardCornerRadiusDp = prefs.getInt(KEY_CARD_CORNER_RADIUS, 20),
+            is3DEffectsEnabled = prefs.getBoolean(KEY_3D_EFFECTS, true),
+            isNeonGlowEnabled = prefs.getBoolean(KEY_NEON_GLOW, true),
+            depthIntensityDp = prefs.getInt(KEY_DEPTH_INTENSITY, 8)
+        )
+        _isVolumeRampEnabled.value = prefs.getBoolean("alarm_volume_ramp", true)
+        _defaultSnoozeTimeMinutes.value = prefs.getInt("alarm_default_snooze_min", 10)
+        _autoDismissMinutes.value = prefs.getInt("alarm_auto_dismiss_min", 15)
+        _upcomingNotificationMinutes.value = prefs.getInt("alarm_upcoming_notice_min", 30)
+        _dismissMethod.value = prefs.getString("alarm_dismiss_method", "SWIPE") ?: "SWIPE"
+        _is24HourFormat.value = prefs.getBoolean("world_clock_24h", true)
+        _isClockHapticsEnabled.value = prefs.getBoolean("world_clock_haptics", true)
+        _isTimerVibrate.value = prefs.getBoolean("timer_vibrate", true)
+        _isStopwatchLapVibrate.value = prefs.getBoolean("stopwatch_lap_vibrate", true)
+        _allowBetaUpdates.value = prefs.getBoolean(KEY_ALLOW_BETA_UPDATES, false)
+    }
 }

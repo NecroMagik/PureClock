@@ -35,38 +35,53 @@ object WidgetRenderEngine {
     ): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_pure_clock)
 
-        val options: Bundle? = if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID && appWidgetManager != null) {
-            appWidgetManager.getAppWidgetOptions(appWidgetId)
+        val effectiveId = if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID && appWidgetId > 0) {
+            appWidgetId
+        } else {
+            config.id
+        }
+        val manager = appWidgetManager ?: AppWidgetManager.getInstance(context)
+
+        val options: Bundle? = if (effectiveId > 0) {
+            try {
+                manager.getAppWidgetOptions(effectiveId)
+            } catch (_: Exception) {
+                null
+            }
         } else null
 
         val density = context.resources.displayMetrics.density
-        val minWidthDp = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)?.takeIf { it > 0 } ?: 320
-        val minHeightDp = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)?.takeIf { it > 0 } ?: 160
+        val minWidthDp = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)?.takeIf { it > 0 } ?: 260
+        val minHeightDp = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)?.takeIf { it > 0 } ?: 120
 
-        val targetWidthPx = max(400, (minWidthDp * density * 1.25f).toInt())
-        val targetHeightPx = max(200, (minHeightDp * density * 1.25f).toInt())
+        // Компактный размер битмапы (~600 КБ) — мгновенно проходит через Binder без зависаний
+        val targetWidthPx = (minWidthDp * density * 0.85f).toInt().coerceIn(320, 680)
+        val targetHeightPx = (minHeightDp * density * 0.85f).toInt().coerceIn(150, 320)
 
         val bitmap = renderCustomWidgetBitmap(context, config, targetWidthPx, targetHeightPx)
         views.setImageViewBitmap(R.id.widget_image_container, bitmap)
 
         val appIntent = Intent(context, MainActivity::class.java).apply {
+            data = android.net.Uri.parse("pureclock://widget/open_app/$effectiveId")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val appPendingIntent = PendingIntent.getActivity(
             context,
-            config.id * 10 + 1,
+            effectiveId * 10 + 1,
             appIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         views.setOnClickPendingIntent(R.id.click_target_app, appPendingIntent)
 
         val configIntent = Intent(context, WidgetConfigActivity::class.java).apply {
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, config.id)
+            action = AppWidgetManager.ACTION_APPWIDGET_CONFIGURE
+            data = android.net.Uri.parse("pureclock://widget/config/$effectiveId")
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, effectiveId)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val configPendingIntent = PendingIntent.getActivity(
             context,
-            config.id * 10 + 2,
+            effectiveId * 10 + 2,
             configIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

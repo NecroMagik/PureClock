@@ -2,7 +2,9 @@ package com.necromagik.pureclock.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 @Entity(tableName = "alarms")
 data class AlarmEntity(
@@ -15,7 +17,6 @@ data class AlarmEntity(
     val specificDateMillis: Long? = null,
     val skippedDateMillis: Long? = null,
 
-    // Киллер-фича OxygenOS: включенные и исключенные даты календаря
     val extraDatesStr: String? = null,
     val excludedDatesStr: String? = null,
 
@@ -28,7 +29,7 @@ data class AlarmEntity(
     fun parseExtraDates(): Set<LocalDate> {
         if (extraDatesStr.isNullOrBlank()) {
             return specificDateMillis?.let {
-                setOf(java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate())
+                setOf(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate())
             } ?: emptySet()
         }
         return extraDatesStr.split(",")
@@ -41,5 +42,19 @@ data class AlarmEntity(
         return excludedDatesStr.split(",")
             .mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
             .toSet()
+    }
+
+    /**
+     * Проверяет, активен ли пропуск именно на будущее время.
+     * Если дата и время пропуска уже остались в прошлом, он считается просроченным.
+     */
+    fun isSkipActive(nowMillis: Long = System.currentTimeMillis()): Boolean {
+        val skip = skippedDateMillis ?: return false
+        return skip > nowMillis
+    }
+
+    fun getSkippedLocalDate(): LocalDate? {
+        val skip = skippedDateMillis ?: return null
+        return Instant.ofEpochMilli(skip).atZone(ZoneId.systemDefault()).toLocalDate()
     }
 }

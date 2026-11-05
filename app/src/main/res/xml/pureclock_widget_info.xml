@@ -8,6 +8,7 @@
     android:maxResizeHeight="400dp"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable"
     android:configure="com.necromagik.pureclock.widget.WidgetConfigActivity"
     android:initialLayout="@layout/widget_pure_clock"
-    android:updatePeriodMillis="0" />
+    android:updatePeriodMillis="1800000" />

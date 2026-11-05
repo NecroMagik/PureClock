@@ -6,15 +6,20 @@ import androidx.core.content.edit
 import com.google.gson.Gson
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.model.*
+import java.util.Locale
 
-class WidgetConfigRepository(private val context: Context) {
-    private val prefs = context.getSharedPreferences("pureclock_widgets_prefs", Context.MODE_PRIVATE)
+class WidgetConfigRepository(context: Context) {
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("pureclock_widgets_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
-    private val settingsManager = SettingsManager.getInstance(context)
+    private val settingsManager = SettingsManager.getInstance(appContext)
 
     fun saveConfig(widgetId: Int, config: WidgetConfig) {
-        val json = gson.toJson(config)
-        prefs.edit { putString("widget_config_$widgetId", json) }
+        val json = gson.toJson(config.copy(id = widgetId))
+        // commit = true гарантирует мгновенную запись перед вызовом updateAppWidget()
+        prefs.edit(commit = true) {
+            putString("widget_config_$widgetId", json)
+        }
     }
 
     fun getConfig(widgetId: Int): WidgetConfig {
@@ -42,7 +47,7 @@ class WidgetConfigRepository(private val context: Context) {
 
     private fun getAppAccentHex(): String {
         val argb = settingsManager.accentColor.toArgb()
-        return String.format("#%06X", 0xFFFFFF and argb)
+        return String.format(Locale.ROOT, "#%06X", 0xFFFFFF and argb)
     }
 
     private fun sanitizeConfig(widgetId: Int, parsed: WidgetConfig?): WidgetConfig {
@@ -84,14 +89,15 @@ class WidgetConfigRepository(private val context: Context) {
     }
 
     fun deleteConfig(widgetId: Int) {
-        prefs.edit { remove("widget_config_$widgetId") }
+        prefs.edit(commit = true) { remove("widget_config_$widgetId") }
     }
 
+    @Suppress("unused")
     fun cleanupOrphanedConfigs(activeIds: IntArray) {
         val activeSet = activeIds.map { "widget_config_$it" }.toSet()
         val allKeys = prefs.all.keys.filter { it.startsWith("widget_config_") && it != "widget_config_0" }
 
-        prefs.edit {
+        prefs.edit(commit = true) {
             allKeys.forEach { key ->
                 if (!activeSet.contains(key)) {
                     remove(key)

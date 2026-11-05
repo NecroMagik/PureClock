@@ -2,44 +2,54 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Подавлялки -->
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"
+    <!-- Разрешения точных будильников и полноэкранного вызова (автоматически выдаются часам) -->
+    <uses-permission
+        android:name="android.permission.USE_FULL_SCREEN_INTENT"
         tools:ignore="FullScreenIntent" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM"
+    <uses-permission
+        android:name="android.permission.USE_EXACT_ALARM"
         tools:ignore="ExactAlarm" />
-    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"
-        tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"
-        tools:ignore="ForegroundServicesDecl" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        tools:ignore="ProtectedPermissions,ExactAlarm" />
 
-    <!-- Базовые разрешения -->
+    <!-- Разрешение для Live Updates / Пространства Origin (Dynamic Island) -->
+    <uses-permission
+        android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Фоновые сервисы будильника, таймера и секундомера -->
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"
+        tools:ignore="ForegroundServicesDecl" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Базовые системные разрешения -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- ОТКЛЮЧИТЬ ПЕРЕД ПУБЛИКАЦИЕЙ В МАРКЕТЫ
+    <!-- Установка APK обновлений с GitHub -->
     <uses-permission
         android:name="android.permission.REQUEST_INSTALL_PACKAGES"
-        tools:ignore="RequestInstallPackagesPolicy" /> -->
+        tools:ignore="RequestInstallPackagesPolicy" />
 
     <application
         android:name=".PureClockApp"
-        android:enableOnBackInvokedCallback="true"
-        tools:targetApi="33"
         android:allowBackup="true"
         android:defaultToDeviceProtectedStorage="true"
         android:directBootAware="true"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="PureClock"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.PureClock">
+        android:theme="@style/Theme.PureClock"
+        tools:targetApi="33">
 
         <!-- Главное окно -->
         <activity
@@ -98,18 +108,31 @@
             android:name=".alarm.StopwatchService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Stopwatch live counter notification service" />
+        </service>
 
         <service
             android:name=".alarm.AlarmService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Active alarm ringing and alert service" />
+        </service>
+
         <service
             android:name=".alarm.TimerService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Timer countdown and alert notification service" />
+        </service>
 
         <property
             android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
@@ -222,7 +245,7 @@
             android:value="true" />
         <meta-data
             android:name="com.vivo.origin.capsule.type"
-            android:value="stopwatch|timer" />
+            android:value="stopwatch|timer|alarm" />
 
     </application>
 </manifest>

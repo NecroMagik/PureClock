@@ -59,23 +59,7 @@ object AppKeeper {
 
         // Восстановление цепочки обновлений виджетов рабочего стола
         try {
-            val appWidgetManager = AppWidgetManager.getInstance(appContext)
-            val providerComponent = ComponentName(appContext, PureClockWidgetProvider::class.java)
-            val widgetIds = appWidgetManager.getAppWidgetIds(providerComponent)
-
-            if (widgetIds != null && widgetIds.isNotEmpty()) {
-                Log.d(TAG, "--> [AppKeeper] Найдено активных виджетов: ${widgetIds.size}. Перезапуск планировщика виджета...")
-                PureClockWidgetProvider.scheduleWidgetUpdates(appContext)
-
-                // Принудительно отправляем широковещательный интент для мгновенного тика
-                val updateIntent = Intent(appContext, PureClockWidgetProvider::class.java).apply {
-                    action = PureClockWidgetProvider.ACTION_WIDGET_UPDATE_TICK
-                    setPackage(appContext.packageName)
-                }
-                appContext.sendBroadcast(updateIntent)
-            } else {
-                Log.v(TAG, "--> [AppKeeper] Активных виджетов на рабочем столе не обнаружено.")
-            }
+            PureClockWidgetProvider.refreshAllActiveWidgets(appContext)
         } catch (e: Exception) {
             Log.e(TAG, "!!!! [AppKeeper ERROR] Сбой восстановления виджета: ${e.message}", e)
         }

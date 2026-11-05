@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -28,6 +27,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.MainScreen
 import com.necromagik.pureclock.ui.theme.PureClockTheme
@@ -42,13 +43,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.necromagik.pureclock.util.OrientationLockHelper.lockPortraitOnPhones(this)
 
-        requestIgnoreBatteryOptimizations()
+        requestIgnoreBatteryOptimizationsOnce()
         ClockIconManager(applicationContext).updateDynamicShortcut()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(false)
-            setTurnScreenOn(false)
-        }
+        setShowWhenLocked(false)
+        setTurnScreenOn(false)
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                     WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
@@ -58,18 +57,21 @@ class MainActivity : ComponentActivity() {
             val settingsManager = remember { SettingsManager.getInstance(applicationContext) }
             val themeState by settingsManager.themeState.collectAsState()
 
-            // Запрос разрешения на уведомления (Android 13+)
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { /* Результат получен */ }
 
             LaunchedEffect(Unit) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (ContextCompat.checkSelfPermission(
-                            applicationContext,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
+                    val prefs = getSharedPreferences("pureclock_prefs", Context.MODE_PRIVATE)
+                    val alreadyAsked = prefs.getBoolean("asked_post_notifications_once", false)
+                    val isGranted = ContextCompat.checkSelfPermission(
+                        applicationContext,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                    if (!isGranted && !alreadyAsked) {
+                        prefs.edit { putBoolean("asked_post_notifications_once", true) }
                         permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
@@ -123,19 +125,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestIgnoreBatteryOptimizations() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                try {
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+    private fun requestIgnoreBatteryOptimizationsOnce() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+
+        val prefs = getSharedPreferences("pureclock_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("asked_battery_opt_once", false)) return
+
+        try {
+            prefs.edit { putBoolean("asked_battery_opt_once", true) }
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = "package:$packageName".toUri()
             }
-        }
+            startActivity(intent)
+        } catch (_: Exception) {}
     }
 }

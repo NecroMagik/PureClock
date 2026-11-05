@@ -2,9 +2,9 @@ package com.necromagik.pureclock.widget
 
 import android.app.Activity
 import android.appwidget.AppWidgetManager
-import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.necromagik.pureclock.data.SettingsManager
@@ -20,16 +20,31 @@ class WidgetConfigActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.necromagik.pureclock.util.OrientationLockHelper.lockPortraitOnPhones(this)
 
-        setResult(RESULT_CANCELED)
-
         appWidgetId = intent?.extras?.getInt(
             AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID
-        ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
+        ) ?: intent?.data?.lastPathSegment?.toIntOrNull()
+                ?: AppWidgetManager.INVALID_APPWIDGET_ID
 
         val repo = WidgetConfigRepository(this)
-        val targetWidgetId = if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) appWidgetId else 0
-        val savedConfig = repo.getConfig(targetWidgetId)
+        val activeIds = PureClockWidgetProvider.getActiveWidgetIds(this)
+        val targetWidgetId = when {
+            appWidgetId > 0 -> appWidgetId
+            activeIds.isNotEmpty() -> activeIds.first()
+            else -> 0
+        }
+
+        Log.d(PureClockWidgetProvider.TAG, "==> [WidgetConfigActivity] Открыт редактор для targetWidgetId=$targetWidgetId (raw=$appWidgetId)")
+
+        val savedConfig = repo.getConfig(targetWidgetId).copy(id = targetWidgetId)
+
+        // Сразу возвращаем RESULT_OK для валидного ID, чтобы лаунчер не создавал зомби-виджеты при закрытии свайпом
+        if (targetWidgetId > 0) {
+            val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, targetWidgetId)
+            setResult(Activity.RESULT_OK, resultValue)
+        } else {
+            setResult(Activity.RESULT_OK)
+        }
 
         val settings = SettingsManager.getInstance(this)
         val themeState = settings.themeState.value
@@ -46,25 +61,28 @@ class WidgetConfigActivity : ComponentActivity() {
             ) {
                 WidgetEditorScreen(
                     initialConfig = savedConfig,
-                    onBackClick = { finish() },
+                    onBackClick = {
+                        PureClockWidgetProvider.refreshAllActiveWidgets(this)
+                        finish()
+                    },
                     onSaveConfig = { updatedConfig ->
-                        repo.saveConfig(targetWidgetId, updatedConfig)
+                        // 1. Синхронно сохраняем базовый профиль и профиль конкретного виджета
+                        repo.saveConfig(0, updatedConfig.copy(id = 0))
+                        if (targetWidgetId > 0) {
+                            repo.saveConfig(targetWidgetId, updatedConfig.copy(id = targetWidgetId))
+                        }
 
-                        val appWidgetManager = AppWidgetManager.getInstance(this)
-                        val views = WidgetRenderEngine.buildCustomRemoteViews(this, updatedConfig)
+                        val allIds = PureClockWidgetProvider.getActiveWidgetIds(this)
+                        for (id in allIds) {
+                            repo.saveConfig(id, updatedConfig.copy(id = id))
+                        }
 
-                        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-                            appWidgetManager.updateAppWidget(appWidgetId, views)
-                            val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                        // 2. Принудительно перерисовываем все активные виджеты и перезапускаем минутный таймер
+                        PureClockWidgetProvider.refreshAllActiveWidgets(this)
+
+                        if (targetWidgetId > 0) {
+                            val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, targetWidgetId)
                             setResult(Activity.RESULT_OK, resultValue)
-                        } else {
-                            val allWidgetIds = appWidgetManager.getAppWidgetIds(
-                                ComponentName(this, PureClockWidgetProvider::class.java)
-                            )
-                            for (id in allWidgetIds) {
-                                repo.saveConfig(id, updatedConfig)
-                                appWidgetManager.updateAppWidget(id, views)
-                            }
                         }
                         finish()
                     }

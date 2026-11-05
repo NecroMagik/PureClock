@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.necromagik.pureclock.data.SettingsManager
+import com.necromagik.pureclock.widget.PureClockWidgetProvider
 
 class PureClockApp : Application(), Configuration.Provider {
 
@@ -45,7 +46,16 @@ class PureClockApp : Application(), Configuration.Provider {
                 }
             }
         }
+        try {
+            val purgedCount = PureClockWidgetProvider.purgeGhostWidgetsMemory(this)
+            if (purgedCount > 0) {
+                Log.i("PureClockApp", "Успешно очищено фантомных виджетов: $purgedCount")
+            }
+        } catch (e: Exception) {
+            Log.e("PureClockApp", "Ошибка при очистке фантомных виджетов: ${e.message}")
+        }
     }
+
 
     private fun initWorkManagerSafe() {
         try {

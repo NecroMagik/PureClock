@@ -14,12 +14,12 @@ class AlarmReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_UPDATE_LIVE_ICON = "com.necromagik.pureclock.ACTION_UPDATE_LIVE_ICON"
+        const val ACTION_FIRE_ALARM = "com.necromagik.pureclock.ACTION_FIRE_ALARM"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
 
-        // 0. Обновление живой иконки/ярлыка при каждой минуте или по сигналу
         if (action == Intent.ACTION_TIME_TICK || action == ACTION_UPDATE_LIVE_ICON) {
             ClockIconManager(context).updateDynamicShortcut()
             if (action == ACTION_UPDATE_LIVE_ICON) return
@@ -37,8 +37,11 @@ class AlarmReceiver : BroadcastReceiver() {
                 try {
                     val alarm = db.alarmDao().getAlarmById(alarmId)
                     if (alarm != null && alarm.isEnabled) {
-                        val noticeCenter = NoticeCenter(context)
-                        noticeCenter.showUpcomingAlarmNotice(alarm)
+                        // Не показываем предварительное уведомление, если день пропущен
+                        if (!alarm.isSkipActive()) {
+                            val noticeCenter = NoticeCenter(context)
+                            noticeCenter.showUpcomingAlarmNotice(alarm)
+                        }
                     }
                 } finally {
                     pendingResult.finish()
@@ -54,7 +57,9 @@ class AlarmReceiver : BroadcastReceiver() {
                     val alarm = db.alarmDao().getAlarmById(alarmId)
                     if (alarm != null) {
                         val scheduler = AlarmScheduler(context)
-                        val triggerTime = scheduler.calculateTriggerTime(alarm)
+                        // Рассчитываем точное время пропуска без учета старых флагов
+                        val cleanAlarm = alarm.copy(skippedDateMillis = null)
+                        val triggerTime = scheduler.calculateTriggerTime(cleanAlarm)
 
                         val updated = alarm.copy(skippedDateMillis = triggerTime)
                         db.alarmDao().updateAlarm(updated)
@@ -75,15 +80,21 @@ class AlarmReceiver : BroadcastReceiver() {
                 try {
                     val alarm = db.alarmDao().getAlarmById(alarmId)
 
-                    if (alarm != null) {
+                    if (alarm != null && alarm.isEnabled) {
+                        val scheduler = AlarmScheduler(context)
                         NoticeCenter(context).dismissUpcomingNotice(alarmId)
 
-                        // Автоотключение, если это разовый сигнал (нет повторов по дням и выбрано не более 1 даты)
                         val extraDates = alarm.parseExtraDates()
                         val isOneTimeAlarm = alarm.daysOfWeek == 0 && extraDates.size <= 1
 
                         if (isOneTimeAlarm) {
+                            // Однократный будильник выключается
                             db.alarmDao().updateAlarm(alarm.copy(isEnabled = false, skippedDateMillis = null))
+                        } else {
+                            // Повторяющийся будильник: сбрасываем разовый пропуск и сразу планируем следующий сигнал
+                            val updatedRecurring = alarm.copy(skippedDateMillis = null)
+                            db.alarmDao().updateAlarm(updatedRecurring)
+                            scheduler.schedule(updatedRecurring)
                         }
 
                         val serviceIntent = Intent(context, AlarmService::class.java).apply {

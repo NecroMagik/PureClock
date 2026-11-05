@@ -6,7 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.necromagik.pureclock.data.AlarmEntity
+import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
@@ -21,16 +25,29 @@ class AlarmScheduler(private val context: Context) {
             return
         }
 
+        val nowMillis = System.currentTimeMillis()
+
+        // Автоочистка устаревшего пропуска, если дата пропуска уже прошла
+        if (alarm.skippedDateMillis != null && alarm.skippedDateMillis <= nowMillis) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = AppDatabase.getDatabase(context)
+                    db.alarmDao().updateAlarm(alarm.copy(skippedDateMillis = null))
+                } catch (_: Exception) {}
+            }
+        }
+
         val settingsManager = SettingsManager.getInstance(context)
         val triggerTime = calculateTriggerTime(alarm)
         val upcomingMinutes = settingsManager.upcomingNotificationMinutes
 
         if (upcomingMinutes > 0) {
             val upcomingTime = triggerTime - (upcomingMinutes * 60 * 1000L)
-            if (upcomingTime > System.currentTimeMillis()) {
+            if (upcomingTime > nowMillis) {
                 val upcomingIntent = Intent(context, AlarmReceiver::class.java).apply {
                     action = "ACTION_SHOW_UPCOMING_NOTICE"
                     putExtra("EXTRA_ALARM_ID", alarm.id)
+                    addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
                 }
                 val pendingUpcoming = PendingIntent.getBroadcast(
                     context,
@@ -48,7 +65,9 @@ class AlarmScheduler(private val context: Context) {
         }
 
         val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = "com.necromagik.pureclock.ACTION_FIRE_ALARM"
             putExtra("EXTRA_ALARM_ID", alarm.id)
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
@@ -72,7 +91,9 @@ class AlarmScheduler(private val context: Context) {
     }
 
     fun cancel(alarm: AlarmEntity) {
-        val intent = Intent(context, AlarmReceiver::class.java)
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = "com.necromagik.pureclock.ACTION_FIRE_ALARM"
+        }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             alarm.id.toInt(),
@@ -90,10 +111,15 @@ class AlarmScheduler(private val context: Context) {
         val extraDates = alarm.parseExtraDates()
         val excludedDates = alarm.parseExcludedDates()
 
+        // Учитываем пропуск только если он назначен на дату в будущем
+        val activeSkipDate = if (alarm.isSkipActive(nowMillis)) alarm.getSkippedLocalDate() else null
+
         val candidates = mutableListOf<Long>()
 
-        // 1. Проверяем точечные даты календаря
+        // 1. Точечные даты календаря
         for (date in extraDates) {
+            if (activeSkipDate != null && date == activeSkipDate) continue
+
             val cal = Calendar.getInstance().apply {
                 set(Calendar.YEAR, date.year)
                 set(Calendar.MONTH, date.monthValue - 1)
@@ -108,7 +134,7 @@ class AlarmScheduler(private val context: Context) {
             }
         }
 
-        // 2. Проверяем регулярные дни недели с учетом исключений
+        // 2. Регулярные дни недели с учётом исключений календаря и разового пропуска
         if (alarm.daysOfWeek != 0) {
             var checkDate = today
             for (i in 0..365) {
@@ -127,15 +153,10 @@ class AlarmScheduler(private val context: Context) {
                     }
 
                     if (cal.timeInMillis > nowMillis) {
-                        // Проверка пропуска 1 раза
-                        if (alarm.skippedDateMillis != null) {
-                            val skipCal = Calendar.getInstance().apply { timeInMillis = alarm.skippedDateMillis }
-                            val isSameDay = cal.get(Calendar.YEAR) == skipCal.get(Calendar.YEAR) &&
-                                    cal.get(Calendar.DAY_OF_YEAR) == skipCal.get(Calendar.DAY_OF_YEAR)
-                            if (!isSameDay) {
-                                candidates.add(cal.timeInMillis)
-                                break
-                            }
+                        if (activeSkipDate != null && checkDate == activeSkipDate) {
+                            // Пропускаем этот день и ищем следующий активный день
+                            checkDate = checkDate.plusDays(1)
+                            continue
                         } else {
                             candidates.add(cal.timeInMillis)
                             break
@@ -146,7 +167,7 @@ class AlarmScheduler(private val context: Context) {
             }
         }
 
-        // 3. Если нет ни повторов, ни extra-дат: однократный сигнал сегодня/завтра
+        // 3. Однократный сигнал (если нет регулярных повторов)
         if (candidates.isEmpty()) {
             val cal = Calendar.getInstance().apply {
                 set(Calendar.HOUR_OF_DAY, alarm.hour)
@@ -166,8 +187,10 @@ class AlarmScheduler(private val context: Context) {
     fun snooze(alarm: AlarmEntity, snoozeMinutes: Int) {
         val snoozeTriggerTime = System.currentTimeMillis() + (snoozeMinutes * 60 * 1000L)
         val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = "com.necromagik.pureclock.ACTION_FIRE_ALARM"
             putExtra("EXTRA_ALARM_ID", alarm.id)
             putExtra("IS_SNOOZE_EVENT", true)
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         }
 
         val snoozePendingIntent = PendingIntent.getBroadcast(

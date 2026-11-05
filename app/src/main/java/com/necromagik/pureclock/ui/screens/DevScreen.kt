@@ -1,7 +1,12 @@
 package com.necromagik.pureclock.ui.screens
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,13 +27,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
+import com.necromagik.pureclock.MainActivity
 import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.data.WorldClockRepository
+import com.necromagik.pureclock.data.repository.ScenaryRepository
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.pure3DEffect
+import com.necromagik.pureclock.util.BackupManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -45,13 +53,19 @@ fun DevScreen(
     val accentColor = themeConfig.accentColor
     val scope = rememberCoroutineScope()
     val settingsManager = remember { SettingsManager.getInstance(context) }
+    val scenaryRepository = remember { ScenaryRepository.getInstance(context) }
     val ifRelease by settingsManager.ifReleaseFlow.collectAsState()
+    val scenarios by scenaryRepository.scenariosFlow.collectAsState()
 
     val db = remember { AppDatabase.getDatabase(context) }
     val repository = remember { WorldClockRepository(db.cityDao(), context) }
 
     var citiesCount by remember { mutableIntStateOf(0) }
     var alarmsCount by remember { mutableIntStateOf(0) }
+    var isBackupBusy by remember { mutableStateOf(false) }
+    var backupStatusMessage by remember { mutableStateOf<String?>(null) }
+    var showRestartAfterRestoreDialog by remember { mutableStateOf(false) }
+
     val installSource = remember { settingsManager.getInstallationSource() }
 
     fun refreshCounts() {
@@ -71,6 +85,51 @@ fun DevScreen(
 
     LaunchedEffect(Unit) {
         refreshCounts()
+    }
+
+    // Лаунчер экспорта резервной копии (.json)
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            isBackupBusy = true
+            scope.launch {
+                val result = BackupManager.exportBackupToUri(context, uri)
+                isBackupBusy = false
+                result.onSuccess { count ->
+                    val msg = "Бэкап сохранён (будильников: $count, сценариев: ${scenarios.size})"
+                    backupStatusMessage = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }.onFailure { err ->
+                    val msg = "Ошибка экспорта: ${err.localizedMessage}"
+                    backupStatusMessage = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    // Лаунчер импорта резервной копии (.json)
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            isBackupBusy = true
+            scope.launch {
+                val result = BackupManager.importBackupFromUri(context, uri)
+                isBackupBusy = false
+                result.onSuccess { summary ->
+                    settingsManager.reloadFromPreferences()
+                    refreshCounts()
+                    backupStatusMessage = "Успешно: $summary"
+                    showRestartAfterRestoreDialog = true
+                }.onFailure { err ->
+                    val msg = "Ошибка импорта: ${err.localizedMessage}"
+                    backupStatusMessage = msg
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     val cardShape = remember(themeConfig.cardCornerRadius) {
@@ -105,9 +164,12 @@ fun DevScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(vertical = 14.dp)
         ) {
+            // =========================================================================
+            // СЕКЦИЯ 1: СОСТОЯНИЕ СИСТЕМЫ И БАЗ ДАННЫХ (НАВЕРХУ)
+            // =========================================================================
             item {
                 Text(
-                    text = "ЛАБОРАТОРИЯ СЦЕНАРИЕВ И ДОК-ПАНЕЛЬ (IF_RELEASE)",
+                    text = "СОСТОЯНИЕ СИСТЕМЫ И БАЗ ДАННЫХ",
                     color = accentColor,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -115,7 +177,45 @@ fun DevScreen(
                 )
             }
 
-            // Карточка управления переменной IfRelease (0 или 1)
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pure3DEffect(
+                            shape = cardShape,
+                            accentColor = accentColor,
+                            depthDp = themeConfig.depthIntensityDp,
+                            is3dEnabled = themeConfig.is3dEnabled,
+                            isGlowEnabled = themeConfig.isGlowEnabled,
+                            surfaceColor = MaterialTheme.colorScheme.surface
+                        )
+                        .padding(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoRow(label = "Источник установки", value = installSource.title)
+                        InfoRow(label = "Статус IfRelease", value = "$ifRelease (${if (ifRelease == 1) "PUBLIC" else "HIDDEN"})")
+                        InfoRow(label = "Записей городов (cities)", value = "$citiesCount шт.")
+                        InfoRow(label = "Сохранённых будильников", value = "$alarmsCount шт.")
+                        InfoRow(label = "Сохранённых сценариев", value = "${scenarios.size} шт.")
+                        InfoRow(label = "Стиль времени будильника", value = settingsManager.selectedAlarmPickerStyle.name)
+                        InfoRow(label = "Шрифт цифр", value = "OpenType tnum")
+                    }
+                }
+            }
+
+            // =========================================================================
+            // СЕКЦИЯ 2: ИЗМЕНЕНИЯ ДОК-БАРА
+            // =========================================================================
+            item {
+                Text(
+                    text = "ИЗМЕНЕНИЯ ДОК-БАРА",
+                    color = accentColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
+
             item {
                 Box(
                     modifier = Modifier
@@ -157,17 +257,13 @@ fun DevScreen(
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
                                     Text(
-                                        text = "Флаг готовности IfRelease = $ifRelease",
+                                        text = "Новый дизайн",
                                         color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
                                     Text(
-                                        text = if (ifRelease == 1) {
-                                            "Вкладка «Сценарии» встроена в док-панель (5 иконок)"
-                                        } else {
-                                            "Скрытый режим (4 иконки, доступ только по коду +10 -5 +3)"
-                                        },
+                                        text = if (ifRelease == 1) "Активен" else "Не активен",
                                         color = Color.Gray,
                                         fontSize = 11.sp,
                                         lineHeight = 15.sp
@@ -218,9 +314,12 @@ fun DevScreen(
                 }
             }
 
+            // =========================================================================
+            // СЕКЦИЯ 3: РЕЗЕРВНОЕ КОПИРОВАНИЕ И ВОССТАНОВЛЕНИЕ
+            // =========================================================================
             item {
                 Text(
-                    text = "СОСТОЯНИЕ СИСТЕМЫ И БАЗ ДАННЫХ",
+                    text = "РЕЗЕРВНОЕ КОПИРОВАНИЕ И ВОССТАНОВЛЕНИЕ",
                     color = accentColor,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -242,17 +341,117 @@ fun DevScreen(
                         )
                         .padding(16.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        InfoRow(label = "Источник установки", value = installSource.title)
-                        InfoRow(label = "Статус IfRelease", value = "$ifRelease (${if (ifRelease == 1) "PUBLIC" else "HIDDEN"})")
-                        InfoRow(label = "Записей городов (cities)", value = "$citiesCount шт.")
-                        InfoRow(label = "Сохранённых будильников", value = "$alarmsCount шт.")
-                        InfoRow(label = "Стиль времени будильника", value = settingsManager.selectedAlarmPickerStyle.name)
-                        InfoRow(label = "Шрифт цифр", value = "OpenType tnum")
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(accentColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudSync,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Полный слепок PureClock (.json)",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    text = "Сохраняет будильники Room, сценарии, таймеры, города и настройки Theme Engine перед переустановкой",
+                                    color = Color.Gray,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+
+                        backupStatusMessage?.let { status ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = accentColor.copy(alpha = 0.12f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = status,
+                                    color = accentColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                enabled = !isBackupBusy,
+                                onClick = {
+                                    exportBackupLauncher.launch(BackupManager.generateDefaultBackupFileName())
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = accentColor,
+                                    contentColor = Color.Black
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .bounceClick()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.UploadFile,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Экспорт", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                            }
+
+                            OutlinedButton(
+                                enabled = !isBackupBusy,
+                                onClick = {
+                                    importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                                },
+                                border = BorderStroke(1.2.dp, accentColor.copy(alpha = 0.7f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .bounceClick()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Импорт",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
 
+            // =========================================================================
+            // СЕКЦИЯ 4: ОЧИСТКА И ПЕРЕСБОРКА ТАБЛИЦ
+            // =========================================================================
             item {
                 Text(
                     text = "ОЧИСТКА И ПЕРЕСБОРКА ТАБЛИЦ",
@@ -260,6 +459,26 @@ fun DevScreen(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
+                )
+            }
+
+            item {
+                DevActionCard(
+                    icon = Icons.Default.CleaningServices,
+                    title = "Очистить фантомные виджеты",
+                    subtitle = "Удаляет из памяти RemoteViews невидимых призраков лаунчера",
+                    buttonText = "Очистить",
+                    accentColor = Color(0xFFFFB74D),
+                    shape = cardShape,
+                    onAction = {
+                        val purged = com.necromagik.pureclock.widget.PureClockWidgetProvider.purgeGhostWidgetsMemory(context)
+                        refreshCounts()
+                        Toast.makeText(
+                            context,
+                            if (purged > 0) "Очищено фантомов: $purged" else "Фантомных виджетов не найдено",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 )
             }
 
@@ -340,11 +559,52 @@ fun DevScreen(
                             .edit { clear() }
                         context.getSharedPreferences("pure_clock_db_sync", Context.MODE_PRIVATE)
                             .edit { clear() }
-                        Toast.makeText(context, "Настройки сброшены. Перезапустите экран", Toast.LENGTH_SHORT).show()
+                        settingsManager.reloadFromPreferences()
+                        Toast.makeText(context, "Настройки сброшены", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
         }
+    }
+
+    if (showRestartAfterRestoreDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestartAfterRestoreDialog = false },
+            title = {
+                Text("Резервная копия восстановлена", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "Все будильники, сценарии, таймеры и настройки успешно импортированы.\n\n" +
+                            "Перезапустить интерфейс сейчас, чтобы все репозитории и цвета обновились?",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showRestartAfterRestoreDialog = false
+                        val activity = context as? Activity
+                        val restartIntent = Intent(context, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        }
+                        context.startActivity(restartIntent)
+                        activity?.finish()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.Black)
+                ) {
+                    Text("Перезапустить", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestartAfterRestoreDialog = false }) {
+                    Text("Позже", color = Color.Gray)
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(20.dp)
+        )
     }
 }
 

@@ -13,6 +13,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -190,6 +193,7 @@ fun Modifier.staggeredEntrance(
 
 // ============================================================================
 // СЕКЦИЯ 6: ОДНОКРАТНАЯ ПРЕЗЕНТАЦИОННАЯ ХОРЕОГРАФИЯ ОБНОВЛЕНИЯ ДОК-БАРА
+// (С ЗАЩИТОЙ ОТ ДВОЙНОГО СРАБАТЫВАНИЯ И НАЛОЖЕНИЯ)
 // ============================================================================
 data class ScenaryDockChoreographyState(
     val fabOffsetY: Dp,
@@ -211,125 +215,158 @@ fun rememberScenaryDockChoreography(
     replayTrigger: Int = 0,
     onIntroFinished: () -> Unit = {}
 ): ScenaryDockChoreographyState {
-    val shouldSitImmediatelyInFiveTab = isFiveTabMode && hasPlayedIntro && replayTrigger == 0
+    val currentHasPlayedIntro by rememberUpdatedState(hasPlayedIntro)
+    val currentOnIntroFinished by rememberUpdatedState(onIntroFinished)
 
-    val fabOffsetAnim = remember { Animatable(if (shouldSitImmediatelyInFiveTab) -86f else -40f) }
+    val shouldStartSettled = isFiveTabMode && hasPlayedIntro && replayTrigger == 0
+
+    val fabOffsetAnim = remember { Animatable(if (shouldStartSettled) -86f else -40f) }
     val fabScaleAnim = remember { Animatable(1f) }
-    val notchRadiusAnim = remember { Animatable(if (shouldSitImmediatelyInFiveTab) 0f else 34f) }
-    val centerSpacerAnim = remember { Animatable(if (shouldSitImmediatelyInFiveTab) 0f else 56f) }
-    val iconRevealAnim = remember { Animatable(if (shouldSitImmediatelyInFiveTab) 1f else 0f) }
+    val notchRadiusAnim = remember { Animatable(if (shouldStartSettled) 0f else 34f) }
+    val centerSpacerAnim = remember { Animatable(if (shouldStartSettled) 0f else 56f) }
+    val iconRevealAnim = remember { Animatable(if (shouldStartSettled) 1f else 0f) }
     val iconWiggleAnim = remember { Animatable(0f) }
     val dockHighlightAnim = remember { Animatable(0f) }
     val spotlightRingAnim = remember { Animatable(0f) }
 
-    var isScenarySlotVisible by remember { mutableStateOf(shouldSitImmediatelyInFiveTab) }
+    var isScenarySlotVisible by remember { mutableStateOf(shouldStartSettled) }
     var showNewBadge by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isFiveTabMode, hasPlayedIntro, replayTrigger) {
-        if (!isFiveTabMode) {
-            // Возврат в 4-иконочный режим
-            showNewBadge = false
-            isScenarySlotVisible = false
-            launch { iconRevealAnim.animateTo(0f, tween(250)) }
-            launch { dockHighlightAnim.snapTo(0f) }
-            launch { spotlightRingAnim.snapTo(0f) }
-            launch { centerSpacerAnim.animateTo(56f, spring(stiffness = Spring.StiffnessMediumLow)) }
-            launch { notchRadiusAnim.animateTo(34f, tween(380, easing = FastOutSlowInEasing)) }
-            launch { fabOffsetAnim.animateTo(-40f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
-        } else if (!hasPlayedIntro || replayTrigger > 0) {
-            // ПОКАЗАТЕЛЬНЫЙ СПЕКТАКЛЬ ОБНОВЛЕНИЯ ДОК-ПАНЕЛИ (Проигрывается 1 раз)
-            showNewBadge = false
-            isScenarySlotVisible = false
-            fabOffsetAnim.snapTo(-40f)
-            fabScaleAnim.snapTo(1f)
-            notchRadiusAnim.snapTo(34f)
-            centerSpacerAnim.snapTo(56f)
-            iconRevealAnim.snapTo(0f)
-            iconWiggleAnim.snapTo(0f)
-            dockHighlightAnim.snapTo(0f)
-            spotlightRingAnim.snapTo(0f)
+    // Храним ссылку на текущую активную задачу хореографии, чтобы исключить наложение
+    var activeChoreographyJob by remember { mutableStateOf<Job?>(null) }
+    var lastHandledReplayTrigger by remember { mutableIntStateOf(0) }
 
-            delay(280)
+    // Ключи ТОЛЬКО isFiveTabMode и replayTrigger! Изменение hasPlayedIntro НЕ перезапускает эффект!
+    LaunchedEffect(isFiveTabMode, replayTrigger) {
+        // Если уже бежит предыдущая анимация — аккуратно отменяем и дожидаемся её остановки
+        activeChoreographyJob?.cancelAndJoin()
 
-            // ФАЗА 1: Подготовка и пружинный замах FAB вниз перед взлётом + вспышка контура док-бара
-            launch {
-                dockHighlightAnim.animateTo(1f, tween(350, easing = FastOutSlowInEasing))
+        activeChoreographyJob = launch {
+            if (!isFiveTabMode) {
+                // Возврат в 4-иконочный режим
+                showNewBadge = false
+                isScenarySlotVisible = false
+                coroutineScope {
+                    launch { iconRevealAnim.animateTo(0f, tween(220)) }
+                    launch { dockHighlightAnim.snapTo(0f) }
+                    launch { spotlightRingAnim.snapTo(0f) }
+                    launch { iconWiggleAnim.snapTo(0f) }
+                    launch { centerSpacerAnim.animateTo(56f, spring(stiffness = Spring.StiffnessMediumLow)) }
+                    launch { notchRadiusAnim.animateTo(34f, tween(360, easing = FastOutSlowInEasing)) }
+                    launch {
+                        fabOffsetAnim.animateTo(
+                            -40f,
+                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                        )
+                    }
+                }
+            } else {
+                val isExplicitReplay = replayTrigger > lastHandledReplayTrigger
+                if (isExplicitReplay) {
+                    lastHandledReplayTrigger = replayTrigger
+                }
+
+                val needPlayIntro = !currentHasPlayedIntro || isExplicitReplay
+
+                if (needPlayIntro) {
+                    // Сразу помечаем, что интро запущено, чтобы никакие рекомпозиции не вызвали его повторно
+                    currentOnIntroFinished()
+
+                    // Чистый сброс всех значений в исходную 4-иконочную позицию перед стартом
+                    showNewBadge = false
+                    isScenarySlotVisible = false
+                    fabOffsetAnim.snapTo(-40f)
+                    fabScaleAnim.snapTo(1f)
+                    notchRadiusAnim.snapTo(34f)
+                    centerSpacerAnim.snapTo(56f)
+                    iconRevealAnim.snapTo(0f)
+                    iconWiggleAnim.snapTo(0f)
+                    dockHighlightAnim.snapTo(0f)
+                    spotlightRingAnim.snapTo(0f)
+
+                    delay(240)
+
+                    // ФАЗА 1: Концентрация (пружинный замах FAB вниз + включение подсветки док-бара)
+                    coroutineScope {
+                        launch { dockHighlightAnim.animateTo(1f, tween(320, easing = FastOutSlowInEasing)) }
+                        launch { fabScaleAnim.animateTo(0.88f, tween(150, easing = FastOutSlowInEasing)) }
+                        launch { fabOffsetAnim.animateTo(-33f, tween(150, easing = FastOutSlowInEasing)) }
+                    }
+
+                    // ФАЗА 2: Взлёт FAB над док-панелью и затягивание выемки док-бара
+                    launch {
+                        fabScaleAnim.animateTo(
+                            1.12f,
+                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+                        )
+                        fabScaleAnim.animateTo(
+                            1.0f,
+                            spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)
+                        )
+                    }
+                    launch {
+                        fabOffsetAnim.animateTo(
+                            targetValue = -94f,
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)
+                        )
+                        fabOffsetAnim.animateTo(
+                            targetValue = -86f,
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                        )
+                    }
+                    launch { notchRadiusAnim.animateTo(0f, tween(480, easing = FastOutSlowInEasing)) }
+                    launch { centerSpacerAnim.animateTo(0f, tween(500, easing = FastOutSlowInEasing)) }
+
+                    delay(340)
+
+                    // ФАЗА 3: Выезд иконки "Сценарии" СПРАВА НАЛЕВО + световое кольцо и бейдж "НОВОЕ"
+                    isScenarySlotVisible = true
+                    showNewBadge = true
+
+                    launch {
+                        iconRevealAnim.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        )
+                    }
+
+                    launch {
+                        delay(120)
+                        spotlightRingAnim.snapTo(0.05f)
+                        spotlightRingAnim.animateTo(1f, tween(900, easing = FastOutSlowInEasing))
+                        spotlightRingAnim.snapTo(0f)
+                    }
+
+                    launch {
+                        delay(160)
+                        iconWiggleAnim.animateTo(13f, tween(120, easing = FastOutSlowInEasing))
+                        iconWiggleAnim.animateTo(-10f, tween(130, easing = FastOutSlowInEasing))
+                        iconWiggleAnim.animateTo(6f, tween(110, easing = FastOutSlowInEasing))
+                        iconWiggleAnim.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                    }
+
+                    // ФАЗА 4: Затухание подсветки и фиксация
+                    delay(1050)
+                    dockHighlightAnim.animateTo(0f, tween(600, easing = FastOutSlowInEasing))
+                    delay(1200)
+                    showNewBadge = false
+                } else {
+                    // Спокойное стационарное состояние 5 вкладок (без повторного проигрывания)
+                    isScenarySlotVisible = true
+                    showNewBadge = false
+                    fabOffsetAnim.snapTo(-86f)
+                    fabScaleAnim.snapTo(1f)
+                    notchRadiusAnim.snapTo(0f)
+                    centerSpacerAnim.snapTo(0f)
+                    iconRevealAnim.snapTo(1f)
+                    iconWiggleAnim.snapTo(0f)
+                    dockHighlightAnim.snapTo(0f)
+                    spotlightRingAnim.snapTo(0f)
+                }
             }
-            fabScaleAnim.animateTo(0.88f, tween(160, easing = FastOutSlowInEasing))
-            fabOffsetAnim.animateTo(-33f, tween(160, easing = FastOutSlowInEasing))
-
-            // ФАЗА 2: Мощный взлёт FAB вверх над док-панелью и синхронное затягивание выемки док-бара
-            launch {
-                fabScaleAnim.animateTo(1.14f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
-                fabScaleAnim.animateTo(1.0f, spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow))
-            }
-            launch {
-                fabOffsetAnim.animateTo(
-                    targetValue = -94f,
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)
-                )
-                fabOffsetAnim.animateTo(
-                    targetValue = -86f,
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
-                )
-            }
-            launch {
-                notchRadiusAnim.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
-            }
-            launch {
-                centerSpacerAnim.animateTo(0f, tween(540, easing = FastOutSlowInEasing))
-            }
-
-            // Ждём, пока FAB освободит место и иконки начнут смыкаться в центре
-            delay(360)
-
-            // ФАЗА 3: Выезд новой иконки "Сценарии" СПРАВА НАЛЕВО, сдвигающий остальные 4 вкладки влево
-            isScenarySlotVisible = true
-            showNewBadge = true
-
-            launch {
-                iconRevealAnim.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
-                    )
-                )
-            }
-
-            // Одновременно запускаем расходящееся световое кольцо вокруг новой иконки и её приветственное покачивание
-            launch {
-                delay(140)
-                spotlightRingAnim.snapTo(0.05f)
-                spotlightRingAnim.animateTo(1f, tween(950, easing = FastOutSlowInEasing))
-                spotlightRingAnim.snapTo(0f)
-            }
-
-            launch {
-                delay(180)
-                iconWiggleAnim.animateTo(14f, tween(130, easing = FastOutSlowInEasing))
-                iconWiggleAnim.animateTo(-11f, tween(140, easing = FastOutSlowInEasing))
-                iconWiggleAnim.animateTo(7f, tween(120, easing = FastOutSlowInEasing))
-                iconWiggleAnim.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-            }
-
-            // ФАЗА 4: Мягкое затухание презентационной подсветки док-бара и фиксация флага
-            delay(1100)
-            dockHighlightAnim.animateTo(0f, tween(650, easing = FastOutSlowInEasing))
-            delay(1400)
-            showNewBadge = false
-            onIntroFinished()
-        } else {
-            // Постоянное состояние 5 вкладок (когда интро уже было показано ранее)
-            isScenarySlotVisible = true
-            showNewBadge = false
-            fabOffsetAnim.snapTo(-86f)
-            fabScaleAnim.snapTo(1f)
-            notchRadiusAnim.snapTo(0f)
-            centerSpacerAnim.snapTo(0f)
-            iconRevealAnim.snapTo(1f)
-            dockHighlightAnim.snapTo(0f)
-            spotlightRingAnim.snapTo(0f)
         }
     }
 

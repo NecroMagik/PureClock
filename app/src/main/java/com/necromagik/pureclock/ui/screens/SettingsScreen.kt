@@ -101,10 +101,7 @@ private fun SettingsMainContent(
     val installSource = remember { settingsManager.getInstallationSource() }
 
     val activeWidgetIds = remember {
-        val appWidgetManager = AppWidgetManager.getInstance(context)
-        val componentName = ComponentName(context, PureClockWidgetProvider::class.java)
-        val ids = appWidgetManager.getAppWidgetIds(componentName)
-        ids.filter { it > 0 }.toIntArray()
+        PureClockWidgetProvider.getActiveWidgetIds(context)
     }
     val hasActiveWidget = activeWidgetIds.isNotEmpty()
 
