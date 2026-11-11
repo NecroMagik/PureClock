@@ -347,7 +347,7 @@ fun TimerScreen(
                                                     timerViewModel.deleteTimer(item.id)
                                                 },
                                                 onAddMinute = { id ->
-                                                    timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
+                                                    timerViewModel.extendTimer(id, item.label, 60L)
                                                 }
                                             )
                                         }
@@ -382,7 +382,7 @@ fun TimerScreen(
                                                     timerViewModel.deleteTimer(item.id)
                                                 },
                                                 onAddMinute = { id ->
-                                                    timerViewModel.extendTimer(id, item.label, item.remainingSeconds + 60L)
+                                                    timerViewModel.extendTimer(id, item.label, 60L)
                                                 }
                                             )
                                         }

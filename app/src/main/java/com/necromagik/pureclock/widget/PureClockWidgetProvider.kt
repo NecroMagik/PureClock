@@ -110,7 +110,7 @@ class PureClockWidgetProvider : AppWidgetProvider() {
          */
         fun getActiveWidgetIds(context: Context, includeUnboundGhosts: Boolean = false): IntArray {
             return try {
-                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val appWidgetManager = AppWidgetManager.getInstance(context) ?: return IntArray(0)
                 val providerComponent = ComponentName(context, PureClockWidgetProvider::class.java)
                 val rawIds = appWidgetManager.getAppWidgetIds(providerComponent) ?: IntArray(0)
 
@@ -120,17 +120,17 @@ class PureClockWidgetProvider : AppWidgetProvider() {
 
                     val options = try {
                         appWidgetManager.getAppWidgetOptions(id)
-                    } catch (_: Exception) {
+                    } catch (_: Throwable) {
                         null
                     }
                     val minW = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) ?: 0
                     val minH = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) ?: 0
 
-                    // Реальный виджет на рабочем столе всегда имеет габариты ячейки от лаунчера (> 0)
                     minW > 0 && minH > 0
                 }.distinct().toIntArray()
-            } catch (e: Exception) {
-                Log.e(TAG, "Ошибка получения списка виджетов: ${e.message}")
+            } catch (t: Throwable) {
+                // Перехватывает AssertionError из Layoutlib превью и любые ошибки сервиса
+                Log.e(TAG, "Ошибка получения списка виджетов: ${t.message}")
                 IntArray(0)
             }
         }
@@ -140,7 +140,7 @@ class PureClockWidgetProvider : AppWidgetProvider() {
          */
         fun purgeGhostWidgetsMemory(context: Context): Int {
             return try {
-                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val appWidgetManager = AppWidgetManager.getInstance(context) ?: return 0
                 val allRawIds = getActiveWidgetIds(context, includeUnboundGhosts = true)
                 val realActiveIds = getActiveWidgetIds(context, includeUnboundGhosts = false).toSet()
                 val ghostIds = allRawIds.filterNot { realActiveIds.contains(it) }
@@ -159,8 +159,8 @@ class PureClockWidgetProvider : AppWidgetProvider() {
                     Log.w(TAG, "--> [Purge] Очищена память у ${ghostIds.size} фантомных виджетов: ${ghostIds.joinToString()}")
                 }
                 ghostIds.size
-            } catch (e: Exception) {
-                Log.e(TAG, "Ошибка очистки фантомных виджетов: ${e.message}")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Ошибка очистки фантомных виджетов: ${t.message}")
                 0
             }
         }

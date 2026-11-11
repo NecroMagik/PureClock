@@ -24,8 +24,9 @@ import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.viewmodel.TimerItem
 import com.necromagik.pureclock.ui.viewmodel.TimerState
 import com.necromagik.pureclock.util.ClockNotificationManager
+import com.necromagik.pureclock.util.OriginIslandHelper.applyOriginIsland
 import com.necromagik.pureclock.util.OriginIslandHelper.attachOriginIslandFlags
-import com.necromagik.pureclock.util.OriginIslandHelper.promoteToOriginIsland
+//import com.necromagik.pureclock.util.OriginIslandHelper.promoteToOriginIsland
 import com.necromagik.pureclock.util.ScenaryExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -117,10 +118,14 @@ class TimerService : Service() {
                         if ((timerId != null && item.id == timerId) || item.state == TimerState.COMPLETED) {
                             TimerReceiver.cancelTimerAlarm(context, item.id)
                             dismissedTimerIds.add(item.id)
+                            val resetSec = if (item.baseTimeSeconds > 0L) item.baseTimeSeconds else item.initialTimeSeconds
                             list[i] = item.copy(
+                                baseTimeSeconds = resetSec,
+                                initialTimeSeconds = resetSec,
                                 state = TimerState.IDLE,
-                                remainingSeconds = item.initialTimeSeconds,
-                                remainingMillis = item.initialTimeSeconds * 1000L
+                                remainingSeconds = resetSec,
+                                remainingMillis = resetSec * 1000L,
+                                endTimestampMillis = 0L
                             )
                             changed = true
                         } else if (item.state == TimerState.RUNNING) {
@@ -288,10 +293,14 @@ class TimerService : Service() {
                     val item = list[i]
                     if ((timerId != null && item.id == timerId) || (timerId == null && item.state != TimerState.IDLE)) {
                         TimerReceiver.cancelTimerAlarm(this, item.id)
+                        val resetSec = if (item.baseTimeSeconds > 0L) item.baseTimeSeconds else item.initialTimeSeconds
                         list[i] = item.copy(
+                            baseTimeSeconds = resetSec,
+                            initialTimeSeconds = resetSec,
                             state = TimerState.IDLE,
-                            remainingSeconds = item.initialTimeSeconds,
-                            remainingMillis = item.initialTimeSeconds * 1000L
+                            remainingSeconds = resetSec,
+                            remainingMillis = resetSec * 1000L,
+                            endTimestampMillis = 0L
                         )
                     } else if (item.state == TimerState.RUNNING || item.state == TimerState.PAUSED) {
                         hasOtherActive = true
@@ -427,8 +436,14 @@ class TimerService : Service() {
             val currentBase = if (item.state == TimerState.RUNNING) item.endTimestampMillis else System.currentTimeMillis()
             triggerTime = currentBase + extraMillis
             val newRemainingMillis = (triggerTime - System.currentTimeMillis()).coerceAtLeast(0L)
+            val newRemainingSec = (newRemainingMillis + 999L) / 1000L
+            val safeBase = if (item.baseTimeSeconds > 0L) item.baseTimeSeconds else item.initialTimeSeconds
+            val newInitialSec = item.initialTimeSeconds + extraSec
+
             list[index] = item.copy(
-                remainingSeconds = (newRemainingMillis + 999L) / 1000L,
+                baseTimeSeconds = safeBase,
+                initialTimeSeconds = newInitialSec,
+                remainingSeconds = newRemainingSec,
                 remainingMillis = newRemainingMillis,
                 state = TimerState.RUNNING,
                 endTimestampMillis = triggerTime
@@ -441,6 +456,7 @@ class TimerService : Service() {
                 TimerItem(
                     id = finalId,
                     label = label,
+                    baseTimeSeconds = extraSec,
                     initialTimeSeconds = extraSec,
                     remainingSeconds = extraSec,
                     remainingMillis = extraMillis,
@@ -553,17 +569,13 @@ class TimerService : Service() {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("00:00")
             .setContentText("Таймер завершен • $label")
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отключить", dismissPendingIntent)
-            .setOngoing(true)
             .setAutoCancel(false)
-            .promoteToOriginIsland(
+            .applyOriginIsland(
                 chipText = "00:00",
-                //targetTimeMillis = null
+                isAlert = true
             )
             .build()
             .attachOriginIslandFlags(chipText = "00:00")

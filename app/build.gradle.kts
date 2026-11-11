@@ -12,10 +12,12 @@ android {
         applicationId = "com.necromagik.pureclock"
         minSdk = 29
         targetSdk = 37
-        versionCode = 138
-        versionName = "v1.36c"
+        versionCode = 140
+        versionName = "v1.40a"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {debugSymbolLevel = "FULL"}
     }
 
     signingConfigs {
@@ -38,6 +40,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            ndk.debugSymbolLevel = "FULL"
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -85,6 +88,7 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.places)
     ksp(libs.androidx.room.compiler)
 
     // Тестирование

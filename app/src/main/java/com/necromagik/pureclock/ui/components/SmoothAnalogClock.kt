@@ -13,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,8 +32,10 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +43,7 @@ import com.necromagik.pureclock.data.AnalogStyle
 import com.necromagik.pureclock.data.DigitalStyle
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
+import com.necromagik.pureclock.ui.theme.PureClockTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
@@ -68,12 +72,25 @@ fun SmoothAnalogClock(
     analogStyle: AnalogStyle = AnalogStyle.OXYGEN,
     digitalStyle: DigitalStyle = DigitalStyle.OXYGEN_LARGE,
     clockSize: Dp = 240.dp,
+    // =========================================================================
+    // ПАРАМЕТРЫ ДИНАМИКИ СТРЕЛКИ ДЛЯ ТОНКОЙ НАСТРОЙКИ:
+    // =========================================================================
+    /** Общая длительность хода стрелки (мс). Рекомендуется: 180..320 мс */
+    tickDurationMillis: Int = 250,
+    /** Угол перелёта вперёд за деление (в градусах, 1 сек = 6.0°). Рекомендуется: 0.8°..2.2° */
+    overshootDegrees: Float = 1.4f,
+    /** Доля времени на бросок вперёд (0.65 = 65% времени вперёд, 35% на откат назад) */
+    forwardTimeRatio: Float = 0.65f,
+    /** Длительность приветственного разворота стрелок от 0° к текущему времени (мс) */
+    entranceDurationMillis: Int = 1300,
+    // =========================================================================
     onShiftHoursChanged: ((Int) -> Unit)? = null,
     onSecretCodeTriggered: (() -> Unit)? = null,
     onScenaryCodeTriggered: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val isInspection = LocalInspectionMode.current
     val themeConfig = LocalPureClockConfig.current
     val accentColor = themeConfig.accentColor
     val settingsManager = remember { SettingsManager.getInstance(context) }
@@ -85,39 +102,107 @@ fun SmoothAnalogClock(
     var shiftHoursCount by rememberSaveable { mutableIntStateOf(0) }
     var isDragging by remember { mutableStateOf(false) }
 
-    val animHourAngle = remember { Animatable(0f) }
+    // Для превью в Android Studio выставляем красивое витринное время 10:10:35,
+    // на реальном устройстве — стартуем строго из 0° для приветственного разворота
+    val initialH = if (isInspection) 305f else 0f
+    val initialM = if (isInspection) 60f else 0f
+    val initialS = if (isInspection) 210f else 0f
+
+    val animHourAngle = remember { Animatable(initialH) }
+    val animMinuteAngle = remember { Animatable(initialM) }
+    val animSecondAngle = remember { Animatable(initialS) }
+
+    var isInitialized by remember { mutableStateOf(isInspection) }
 
     LaunchedEffect(shiftHoursCount) {
         onShiftHoursChanged?.invoke(shiftHoursCount)
     }
 
 // ============================================================================
-// СЕКЦИЯ 1: КИНЕМАТИКА И ВРЕМЯ
+// СЕКЦИЯ 1: ПЛАВНЫЙ СТАРТ ИЗ 0° И КВАРЦЕВЫЙ ТИК С ПЕРЕЛЁТОМ
 // ============================================================================
-    var isEntranceTriggered by remember { mutableStateOf(false) }
     var continuousSecondAngle by remember { mutableDoubleStateOf(0.0) }
     var lastRawSecond by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(timeZoneId) {
-        isEntranceTriggered = false
-        delay(60)
-        isEntranceTriggered = true
+        if (isInspection) return@LaunchedEffect
 
+        val initialDateTime = LocalDateTime.now(ZoneId.of(timeZoneId))
+        nowDateTime = initialDateTime
+
+        val initialSec = initialDateTime.second
+        val initialMin = initialDateTime.minute
+        val initialHour = initialDateTime.hour
+
+        val targetSecAngle = initialSec * 6f
+        val targetMinAngle = (initialMin + initialSec / 60f) * 6f
+        val targetHourAngle = ((initialHour % 12) + initialMin / 60f + initialSec / 3600f) * 30f
+
+        animHourAngle.snapTo(0f)
+        animMinuteAngle.snapTo(0f)
+        animSecondAngle.snapTo(0f)
+
+        continuousSecondAngle = targetSecAngle.toDouble()
+
+        // Плавная приветственная инициализация стрелок из 0°
+        val entranceSpec = tween<Float>(
+            durationMillis = entranceDurationMillis,
+            easing = FastOutSlowInEasing
+        )
+
+        launch { animHourAngle.animateTo(targetHourAngle, entranceSpec) }
+        launch { animMinuteAngle.animateTo(targetMinAngle, entranceSpec) }
+        val secondEntranceJob = launch { animSecondAngle.animateTo(targetSecAngle, entranceSpec) }
+
+        secondEntranceJob.join()
+        isInitialized = true
+        lastRawSecond = LocalDateTime.now(ZoneId.of(timeZoneId)).second
+        continuousSecondAngle = (lastRawSecond * 6f).toDouble()
+
+        // Рабочий цикл тика с инерционным отскоком
         while (true) {
             val now = LocalDateTime.now(ZoneId.of(timeZoneId))
             nowDateTime = now
 
             val currentSec = now.second
-            if (lastRawSecond != -1) {
-                if (currentSec < lastRawSecond) {
-                    continuousSecondAngle += (60 - lastRawSecond + currentSec) * 6.0
+            if (currentSec != lastRawSecond) {
+                val step = if (currentSec < lastRawSecond) {
+                    (60 - lastRawSecond + currentSec)
                 } else {
-                    continuousSecondAngle += (currentSec - lastRawSecond) * 6.0
+                    currentSec - lastRawSecond
                 }
-            } else {
-                continuousSecondAngle = currentSec * 6.0
+                continuousSecondAngle += step * 6.0
+                lastRawSecond = currentSec
+
+                val target = continuousSecondAngle.toFloat()
+                val forwardDuration = (tickDurationMillis * forwardTimeRatio.coerceIn(0.1f, 0.9f)).toInt()
+
+                // Ключевой эффект: резкий рывок вперед с перелётом + возврат назад на деление
+                launch {
+                    animSecondAngle.animateTo(
+                        targetValue = target,
+                        animationSpec = keyframes {
+                            durationMillis = tickDurationMillis
+                            // 1. Быстрый импульс вперёд: пролетаем метку на overshootDegrees
+                            (target + overshootDegrees) at forwardDuration using FastOutLinearInEasing
+                            // 2. Упругий возврат назад точно на метку шкалы
+                            target at tickDurationMillis using LinearOutSlowInEasing
+                        }
+                    )
+                }
+
+                // Плавное следование минутной стрелки
+                val currentMinAngle = (now.minute + now.second / 60f) * 6f
+                launch {
+                    animMinuteAngle.animateTo(
+                        targetValue = currentMinAngle,
+                        animationSpec = tween(
+                            durationMillis = tickDurationMillis,
+                            easing = LinearOutSlowInEasing
+                        )
+                    )
+                }
             }
-            lastRawSecond = currentSec
 
             delay(16)
         }
@@ -129,12 +214,10 @@ fun SmoothAnalogClock(
     val effectiveTime = effectiveDateTime.toLocalTime()
     val effectiveDate = effectiveDateTime.toLocalDate()
 
-    val baseSecondAngle = continuousSecondAngle.toFloat()
-    val baseMinuteAngle = (effectiveTime.minute + effectiveTime.second / 60f) * 6f
     val rawSystemHourAngle = ((nowDateTime.hour % 12) + nowDateTime.minute / 60f + nowDateTime.second / 3600f) * 30f
 
-    LaunchedEffect(rawSystemHourAngle, isDragging, shiftHoursCount) {
-        if (!isDragging) {
+    LaunchedEffect(rawSystemHourAngle, isDragging, shiftHoursCount, isInitialized) {
+        if (!isDragging && isInitialized) {
             val targetAngle = rawSystemHourAngle + (shiftHoursCount * 30f)
             val delta = getShortestAngleDelta(animHourAngle.value, targetAngle)
 
@@ -152,25 +235,13 @@ fun SmoothAnalogClock(
         }
     }
 
-    val animSecondAngle by animateFloatAsState(
-        targetValue = if (isEntranceTriggered) baseSecondAngle else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioLowBouncy),
-        label = "SecondHandEntrance"
-    )
-
-    val animMinuteAngle by animateFloatAsState(
-        targetValue = if (isEntranceTriggered) baseMinuteAngle else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "MinuteHandEntrance"
-    )
-
     val finalHourAngle = animHourAngle.value
 
 // ============================================================================
 // СЕКЦИЯ 2: АНИМАЦИЯ МЕРЦАНИЯ И ЦВЕТОВЫЕ НАСТРОЙКИ
 // ============================================================================
     var flickerText by remember { mutableStateOf("") }
-    var isFlickering by remember { mutableStateOf(true) }
+    var isFlickering by remember { mutableStateOf(!isInspection) }
     val recentShifts = remember { mutableStateListOf<Int>() }
 
     val flickerAlpha by animateFloatAsState(
@@ -179,7 +250,8 @@ fun SmoothAnalogClock(
         label = "FlickerAlpha"
     )
 
-    LaunchedEffect(isEntranceTriggered) {
+    LaunchedEffect(timeZoneId) {
+        if (isInspection) return@LaunchedEffect
         isFlickering = true
         repeat(4) {
             val randH = Random.nextInt(0, 24)
@@ -214,6 +286,7 @@ fun SmoothAnalogClock(
                         settingsManager.isDigitalClockMode = false
                         triggerHaptic(context)
                     },
+                    shape = CircleShape,
                     color = Color.Transparent,
                     modifier = Modifier.size(clockSize)
                 ) {
@@ -329,12 +402,10 @@ fun SmoothAnalogClock(
                                             }
 
                                             when (recentShifts.toList()) {
-                                                // Код панели разработчика: (+1) -> (-5) -> (+9)
                                                 listOf(1, -5, 9) -> {
                                                     recentShifts.clear()
                                                     onSecretCodeTriggered?.invoke()
                                                 }
-                                                // Код секретной вкладки Сценариев: (+10) -> (-5) -> (+3)
                                                 listOf(10, -5, 3) -> {
                                                     recentShifts.clear()
                                                     onScenaryCodeTriggered?.invoke()
@@ -410,16 +481,13 @@ fun SmoothAnalogClock(
                             AnalogStyle.OXYGEN -> {
                                 val redColor = Color(0xFFFF5252)
 
-                                // 1. Все засечки минутной/часовой шкалы
                                 for (i in 0 until 60) {
                                     val isHour = i % 5 == 0
-                                    val isOneHourTick = i == 5 // Засечка на 5 минутах (напротив цифры 1)
+                                    val isOneHourTick = i == 5
                                     val angle = i * 6f
 
                                     val tickLength = if (isHour) 8.dp.toPx() else 4.dp.toPx()
                                     val strokeWidth = if (isHour) 2.dp.toPx() else 1.dp.toPx()
-
-                                    // Покрашена ТОЛЬКО засечка напротив цифры 1, остальные — стандартные
                                     val tickColor = if (isOneHourTick) redColor else if (isHour) hourHandColor else Color.Gray.copy(alpha = 0.35f)
 
                                     rotate(angle, center) {
@@ -433,7 +501,6 @@ fun SmoothAnalogClock(
                                     }
                                 }
 
-                                // 2. Арабские цифры по кругу (12, 1, 2... 11)
                                 val textPaint = Paint().apply {
                                     isAntiAlias = true
                                     textSize = radius * 0.16f
@@ -448,11 +515,9 @@ fun SmoothAnalogClock(
                                     val x = center.x + (numRadius * cos(angleRad)).toFloat()
                                     val y = center.y + (numRadius * sin(angleRad)).toFloat() + (textPaint.textSize / 3f)
 
-                                    // Красной красится ТОЛЬКО одиночная цифра 1 (1 час)
                                     if (hour == 1) {
                                         textPaint.color = redColor.toArgb()
                                     } else {
-                                        // 10, 11, 12 и остальные цифры остаются белыми/основным цветом
                                         textPaint.color = hourHandColor.toArgb()
                                     }
 
@@ -461,7 +526,6 @@ fun SmoothAnalogClock(
                             }
 
                             AnalogStyle.CLASSIC_ARABIC -> {
-                                // Минутные засечки
                                 for (i in 0 until 60) {
                                     val isHour = i % 5 == 0
                                     val angle = i * 6f
@@ -476,7 +540,6 @@ fun SmoothAnalogClock(
                                     }
                                 }
 
-                                // Крупные арабские цифры
                                 val textPaint = Paint().apply {
                                     isAntiAlias = true
                                     textSize = radius * 0.17f
@@ -538,7 +601,7 @@ fun SmoothAnalogClock(
                                 }
                             }
 
-                            AnalogStyle.MINIMAL -> { // Bauhaus Dots
+                            AnalogStyle.MINIMAL -> {
                                 for (i in 0 until 12) {
                                     val angle = i * 30f
                                     val isMainAxis = i % 3 == 0
@@ -552,9 +615,7 @@ fun SmoothAnalogClock(
                                 }
                             }
 
-                            AnalogStyle.ULTRA_MINIMAL -> {
-                                // Чистый циферблат без засечек
-                            }
+                            AnalogStyle.ULTRA_MINIMAL -> {}
                         }
 
                         // --- 2. ЧАСОВАЯ СТРЕЛКА ---
@@ -570,7 +631,7 @@ fun SmoothAnalogClock(
                         }
 
                         // --- 3. МИНУТНАЯ СТРЕЛКА ---
-                        rotate(animMinuteAngle, center) {
+                        rotate(animMinuteAngle.value, center) {
                             drawLine(
                                 color = minuteHandColor,
                                 start = center,
@@ -580,8 +641,8 @@ fun SmoothAnalogClock(
                             )
                         }
 
-                        // --- 4. СЕКУНДНАЯ СТРЕЛКА ---
-                        rotate(animSecondAngle, center) {
+                        // --- 4. СЕКУНДНАЯ СТРЕЛКА (МЕХАНИЧЕСКИЙ РЕЗКИЙ ТИК С ОТСКОКОМ) ---
+                        rotate(animSecondAngle.value, center) {
                             when (analogStyle) {
                                 AnalogStyle.CHRONO -> {
                                     drawLine(
@@ -650,8 +711,9 @@ fun SmoothAnalogClock(
                             settingsManager.isDigitalClockMode = true
                             triggerHaptic(context)
                         },
+                        shape = CircleShape,
                         color = Color.Transparent,
-                        modifier = Modifier.size(100.dp)
+                        modifier = Modifier.size(clockSize)
                     ) {}
                 }
             }
@@ -713,4 +775,67 @@ private fun triggerHaptic(context: Context) {
             vibrator.vibrate(40)
         }
     } catch (_: Exception) {}
+}
+
+// ============================================================================
+// COMPOSE PREVIEWS (АНАЛОГОВЫЕ ЧАСЫ)
+// ============================================================================
+
+@Preview(name = "Analog Clock - Oxygen (Тёмная тема)", showBackground = true, backgroundColor = 0xFF0B0D13)
+@Composable
+private fun SmoothAnalogClockPreview_Oxygen() {
+    PureClockTheme(
+        themeMode = "DARK",
+        isPureMonocolor = true,
+        accentColor = Color(0xFFFF5252),
+        cardCornerRadiusDp = 20,
+        is3dEnabled = true,
+        isGlowEnabled = true,
+        depthIntensityDp = 8
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            SmoothAnalogClock(
+                analogStyle = AnalogStyle.OXYGEN,
+                clockSize = 250.dp,
+                // Здесь можно сразу тестировать разные значения скорости и отскока:
+                tickDurationMillis = 250,
+                overshootDegrees = 1.5f,
+                forwardTimeRatio = 0.65f
+            )
+        }
+    }
+}
+
+@Preview(name = "Analog Clock - Chrono Sport (Светлая тема)", showBackground = true, backgroundColor = 0xFFF5F5F5)
+@Composable
+private fun SmoothAnalogClockPreview_Chrono() {
+    PureClockTheme(
+        themeMode = "LIGHT",
+        isPureMonocolor = false,
+        accentColor = Color(0xFF00C853),
+        cardCornerRadiusDp = 18,
+        is3dEnabled = true,
+        isGlowEnabled = false,
+        depthIntensityDp = 6
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            SmoothAnalogClock(
+                analogStyle = AnalogStyle.CHRONO,
+                clockSize = 250.dp,
+                tickDurationMillis = 220,
+                overshootDegrees = 1.8f,
+                forwardTimeRatio = 0.60f
+            )
+        }
+    }
 }

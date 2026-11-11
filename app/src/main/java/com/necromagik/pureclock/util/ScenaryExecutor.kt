@@ -12,7 +12,7 @@ import com.necromagik.pureclock.R
 import com.necromagik.pureclock.data.model.*
 import com.necromagik.pureclock.data.repository.ScenaryRepository
 import com.necromagik.pureclock.util.OriginIslandHelper.attachOriginIslandFlags
-import com.necromagik.pureclock.util.OriginIslandHelper.promoteToOriginIsland
+import com.necromagik.pureclock.util.OriginIslandHelper.applyOriginIsland
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -153,7 +153,7 @@ object ScenaryExecutor {
                 .setStyle(NotificationCompat.BigTextStyle().bigText(message))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .promoteToOriginIsland(chipText = "Сценарий")
+                .applyOriginIsland(chipText = "Сценарий")
                 .build()
                 .attachOriginIslandFlags(chipText = "Сценарий")
 

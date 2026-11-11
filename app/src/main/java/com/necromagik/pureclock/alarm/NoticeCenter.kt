@@ -72,7 +72,7 @@ class NoticeCenter(private val context: Context) {
         val expandedMessage = if (alarm.label.isNotEmpty()) {
             "Метка: «${alarm.label}»\nВремя сигнала: $timeText\nВы можете пропустить этот сигнал заранее."
         } else {
-            "Запланированный сигнал на $timeText.\nНажмите «Пропустить», если встали раньше."
+            "Запланированный сигнал на $timeText.\nНажмите «Пропустить», если сигнал больше не требуется."
         }
 
         val notification = NotificationCompat.Builder(context, UPCOMING_CHANNEL_ID)
@@ -90,7 +90,7 @@ class NoticeCenter(private val context: Context) {
             )
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "Пропустить 1 раз",
+                "Пропустить",
                 skipPendingIntent
             )
             .setAutoCancel(true)

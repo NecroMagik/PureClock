@@ -2,9 +2,12 @@ package com.necromagik.pureclock.alarm
 
 import android.app.KeyguardManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
@@ -20,58 +23,86 @@ import com.necromagik.pureclock.util.ScenaryExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 class AlarmService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
-    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var volumeRampJob: Job? = null
+    private var autoDismissJob: Job? = null
+
+    private val activeAlarmIds = ConcurrentHashMap.newKeySet<Long>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         val alarmId = intent?.getLongExtra("EXTRA_ALARM_ID", -1L) ?: -1L
+        val settingsManager = SettingsManager.getInstance(this)
 
-        // 1. Обработка кнопок из Heads-Up Уведомления / Острова Origin
         if (action == NoticeCenter.ACTION_DISMISS_ALARM) {
-            if (alarmId != -1L) {
-                ScenaryExecutor.executeForAlarm(this, alarmId)
+            val idsToDismiss = if (activeAlarmIds.isNotEmpty()) activeAlarmIds.toList() else if (alarmId != -1L) listOf(alarmId) else emptyList()
+            idsToDismiss.forEach { id ->
+                ScenaryExecutor.executeForAlarm(this, id)
             }
-            stopSelf()
+            stopAlarmPlaybackAndExit()
             return START_NOT_STICKY
         }
 
         if (action == NoticeCenter.ACTION_SNOOZE_ALARM) {
-            if (alarmId != -1L) {
-                val settingsManager = SettingsManager.getInstance(this)
-                val snoozeMinutes = settingsManager.defaultSnoozeTimeMinutes
-                CoroutineScope(Dispatchers.IO).launch {
-                    val db = AppDatabase.getDatabase(applicationContext)
-                    val alarm = db.alarmDao().getAlarmById(alarmId)
+            val snoozeMinutes = settingsManager.defaultSnoozeTimeMinutes
+            val idsToSnooze = if (activeAlarmIds.isNotEmpty()) activeAlarmIds.toList() else if (alarmId != -1L) listOf(alarmId) else emptyList()
+
+            CoroutineScope(Dispatchers.IO).launch {
+                val db = AppDatabase.getDatabase(applicationContext)
+                val scheduler = AlarmScheduler(applicationContext)
+                idsToSnooze.forEach { id ->
+                    val alarm = db.alarmDao().getAlarmById(id)
                     if (alarm != null) {
-                        AlarmScheduler(applicationContext).snooze(alarm, snoozeMinutes)
+                        scheduler.snooze(alarm, snoozeMinutes)
                     }
                 }
             }
-            stopSelf()
+            stopAlarmPlaybackAndExit()
             return START_NOT_STICKY
         }
 
+        if (alarmId != -1L) {
+            activeAlarmIds.add(alarmId)
+        }
+
+        // Прекращаем предыдущий звук и сбрасываем корутины во избежание наложения звуков
+        stopMediaAndVibratorOnly()
+        volumeRampJob?.cancel()
+        autoDismissJob?.cancel()
+
         val ringtoneUriStr = intent?.getStringExtra("RINGTONE_URI")
         val label = intent?.getStringExtra("EXTRA_ALARM_LABEL").orEmpty()
-        val settingsManager = SettingsManager.getInstance(this)
+        val isVibrate = intent?.getBooleanExtra("EXTRA_IS_VIBRATE", true) ?: true
         val now = LocalTime.now()
         val timeText = String.format(Locale.ROOT, "%02d:%02d", now.hour, now.minute)
 
-        // 2. Старт единого Foreground Service с продвижением в динамический остров Origin
+        val displayLabel = if (activeAlarmIds.size > 1) {
+            if (label.isNotEmpty()) "$label (+${activeAlarmIds.size - 1})" else "Будильники (${activeAlarmIds.size})"
+        } else {
+            label
+        }
+
         val noticeCenter = NoticeCenter(this)
-        val activeNotification = noticeCenter
-            .buildActiveAlarmNotification(alarmId, label, timeText)
-            .attachOriginIslandFlags(chipText = timeText)
+        val activeNotification = noticeCenter.buildActiveAlarmNotification(
+            if (alarmId != -1L) alarmId else (activeAlarmIds.firstOrNull() ?: 1L),
+            displayLabel,
+            timeText
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
@@ -83,7 +114,10 @@ class AlarmService : Service() {
             startForeground(NOTIFICATION_ID, activeNotification)
         }
 
-        // 3. Воспроизведение звука
+        // Запрос эксклюзивного аудиофокуса
+        requestAudioFocusSafe()
+
+        // Воспроизведение звука с поддержкой настройки плавного нарастания
         try {
             val audioUri = ringtoneUriStr?.ifEmpty { null }?.toUri()
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
@@ -103,7 +137,7 @@ class AlarmService : Service() {
                     prepare()
                     start()
 
-                    serviceScope.launch {
+                    volumeRampJob = serviceScope.launch {
                         for (i in 1..20) {
                             delay(1500)
                             val vol = i / 20f
@@ -120,18 +154,26 @@ class AlarmService : Service() {
             e.printStackTrace()
         }
 
-        // 4. Вибрация
-        vibrator = getSystemService(Vibrator::class.java)
-        vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 500), 0))
+        // Вибрация с учетом флага будильника
+        if (isVibrate) {
+            vibrator = getSystemService(Vibrator::class.java)
+            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 500), 0))
+        }
 
-        // 5. Разделение логики: Экран Включен vs Выключен
+        // Автоотключение по таймеру autoDismissMinutes без паразитного снуза
+        val autoDismissMins = settingsManager.autoDismissMinutes
+        if (autoDismissMins > 0) {
+            autoDismissJob = serviceScope.launch {
+                delay(autoDismissMins * 60 * 1000L)
+                // Завершаем звон: повторяющиеся будильники уже запланированы на следующий день в AlarmReceiver
+                stopAlarmPlaybackAndExit()
+            }
+        }
+
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
 
-        val isScreenInteractive = powerManager.isInteractive
-        val isLocked = keyguardManager.isKeyguardLocked
-
-        if (!isScreenInteractive || isLocked) {
+        if (!powerManager.isInteractive || keyguardManager.isKeyguardLocked) {
             val alertIntent = Intent(this, AlarmAlertActivity::class.java).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -141,6 +183,7 @@ class AlarmService : Service() {
                             Intent.FLAG_ACTIVITY_NO_USER_ACTION
                 )
                 putExtra("EXTRA_ALARM_ID", alarmId)
+                putExtra("ALARM_LABEL", displayLabel)
             }
             startActivity(alertIntent)
         }
@@ -148,11 +191,59 @@ class AlarmService : Service() {
         return START_STICKY
     }
 
+    private fun requestAudioFocusSafe() {
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .build()
+            audioManager?.requestAudioFocus(audioFocusRequest!!)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.requestAudioFocus(null, AudioManager.STREAM_ALARM, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+        }
+    }
+
+    private fun abandonAudioFocusSafe() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.abandonAudioFocus(null)
+        }
+    }
+
+    private fun stopMediaAndVibratorOnly() {
+        try {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+        } catch (_: Exception) {}
+        mediaPlayer = null
+
+        try {
+            vibrator?.cancel()
+        } catch (_: Exception) {}
+        vibrator = null
+    }
+
+    private fun stopAlarmPlaybackAndExit() {
+        activeAlarmIds.clear()
+        volumeRampJob?.cancel()
+        autoDismissJob?.cancel()
+        stopMediaAndVibratorOnly()
+        abandonAudioFocusSafe()
+        sendBroadcast(Intent(AlarmAlertActivity.ACTION_CLOSE_ALERT).setPackage(packageName))
+        stopSelf()
+    }
+
     override fun onDestroy() {
         serviceScope.cancel()
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
-        vibrator?.cancel()
+        stopAlarmPlaybackAndExit()
         super.onDestroy()
     }
 

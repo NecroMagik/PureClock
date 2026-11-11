@@ -33,10 +33,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Установка APK обновлений с GitHub -->
+    <!-- TODO: Установка APK обновлений с GitHub
     <uses-permission
         android:name="android.permission.REQUEST_INSTALL_PACKAGES"
-        tools:ignore="RequestInstallPackagesPolicy" />
+        tools:ignore="RequestInstallPackagesPolicy" />   -->
 
     <application
         android:name=".PureClockApp"

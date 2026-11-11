@@ -25,7 +25,8 @@ enum class TimerExecutionMode { CHAIN, PARALLEL }
 data class TimerItem(
     val id: String = java.util.UUID.randomUUID().toString(),
     val label: String = "Таймер",
-    val initialTimeSeconds: Long = 300L,
+    val baseTimeSeconds: Long = 300L, // Неизменное изначальное время, заданное при создании
+    val initialTimeSeconds: Long = 300L, // Длительность текущего круга с учётом начисленных +1 мин
     var remainingSeconds: Long = 300L,
     var remainingMillis: Long = 300_000L,
     var state: TimerState = TimerState.IDLE,
@@ -55,7 +56,6 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
     private var tickerJob: Job? = null
     private var isInternalSaving = false
 
-    // Слушатель изменений из TimerService (кнопки Пауза / Старт / +1 мин / Закрыть в уведомлении и острове)
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "saved_timers_list" && !isInternalSaving) {
             loadTimersFromStorage()
@@ -82,14 +82,18 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
 
                 val now = System.currentTimeMillis()
                 val restored = saved.map { item ->
-                    if (item.state == TimerState.RUNNING) {
-                        val diff = item.endTimestampMillis - now
+                    // Защита от старых JSON, где baseTimeSeconds мог быть 0L
+                    val safeBase = if (item.baseTimeSeconds > 0L) item.baseTimeSeconds else item.initialTimeSeconds
+                    val safeItem = if (item.baseTimeSeconds <= 0L) item.copy(baseTimeSeconds = safeBase) else item
+
+                    if (safeItem.state == TimerState.RUNNING) {
+                        val diff = safeItem.endTimestampMillis - now
                         if (diff <= 0) {
-                            item.copy(state = TimerState.COMPLETED, remainingMillis = 0L, remainingSeconds = 0L)
+                            safeItem.copy(state = TimerState.COMPLETED, remainingMillis = 0L, remainingSeconds = 0L)
                         } else {
-                            item.copy(remainingMillis = diff, remainingSeconds = (diff + 999L) / 1000L)
+                            safeItem.copy(remainingMillis = diff, remainingSeconds = (diff + 999L) / 1000L)
                         }
-                    } else item
+                    } else safeItem
                 }
                 _timersList.value = restored
             } catch (_: Exception) {
@@ -158,7 +162,6 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
                     _isChainRunning.value = hasRunningTimers
                 }
 
-                // Не закрываем уведомление, если есть таймер на паузе (чтобы в острове работала кнопка "Старт")
                 if (!hasRunningOrPausedTimers && !TimerService.isRinging) {
                     ClockNotificationManager.cancel(getApplication(), ClockNotificationManager.NOTIFICATION_ID_TIMER)
                 }
@@ -227,6 +230,7 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         val millis = seconds * 1000L
         val newItem = TimerItem(
             label = label.ifBlank { "Таймер ${list.size + 1}" },
+            baseTimeSeconds = seconds,
             initialTimeSeconds = seconds,
             remainingSeconds = seconds,
             remainingMillis = millis,
@@ -299,6 +303,9 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Сбрасывает таймер к исходному состоянию (baseTimeSeconds), которое было задано пользователем при создании.
+     */
     fun resetSingleTimer(id: String) {
         TimerService.dismissRingingTimer(getApplication(), id)
 
@@ -307,11 +314,17 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         if (index != -1) {
             val item = list[index]
             TimerReceiver.cancelTimerAlarm(getApplication(), item.id)
-            val initMillis = item.initialTimeSeconds * 1000L
+
+            // Возвращаем строго к базовому времени (например, 5 минут, а не 5+4)
+            val resetSeconds = if (item.baseTimeSeconds > 0L) item.baseTimeSeconds else item.initialTimeSeconds
+            val resetMillis = resetSeconds * 1000L
+
             list[index] = item.copy(
-                remainingSeconds = item.initialTimeSeconds,
-                remainingMillis = initMillis,
-                state = TimerState.IDLE
+                initialTimeSeconds = resetSeconds,
+                remainingSeconds = resetSeconds,
+                remainingMillis = resetMillis,
+                state = TimerState.IDLE,
+                endTimestampMillis = 0L
             )
             _timersList.value = list
             saveTimersToStorage()
@@ -347,58 +360,115 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun extendTimer(timerId: String?, label: String, extraSeconds: Long) {
+    /**
+     * Прибавляет секунды (+1 минута) к существующему таймеру, не затирая его baseTimeSeconds.
+     */
+    fun extendTimer(timerId: String?, label: String, extraSeconds: Long = 60L) {
         val list = _timersList.value.toMutableList()
         val index = if (!timerId.isNullOrEmpty()) list.indexOfFirst { it.id == timerId } else -1
-        val extraMillis = extraSeconds * 1000L
-        val triggerTime = System.currentTimeMillis() + extraMillis
+        val now = System.currentTimeMillis()
 
         val finalId: String
         val initSec: Long
+        val newRemainingSec: Long
+        val newRemainingMs: Long
+        val isTimerRunning: Boolean
+
         if (index != -1) {
             val item = list[index]
             finalId = item.id
-            initSec = item.initialTimeSeconds + 60L
-            list[index] = item.copy(
-                initialTimeSeconds = initSec,
-                remainingSeconds = extraSeconds,
-                remainingMillis = extraMillis,
-                state = TimerState.RUNNING,
-                endTimestampMillis = triggerTime
-            )
+
+            // Если таймер бежит — увеличиваем оставшееся время и сдвигаем дедлайн на extraSeconds
+            if (item.state == TimerState.RUNNING) {
+                isTimerRunning = true
+                val currentRemainingMs = (item.endTimestampMillis - now).coerceAtLeast(0L)
+                newRemainingMs = currentRemainingMs + (extraSeconds * 1000L)
+                newRemainingSec = (newRemainingMs + 999L) / 1000L
+                val newEndTimestamp = now + newRemainingMs
+                initSec = item.initialTimeSeconds + extraSeconds
+
+                list[index] = item.copy(
+                    initialTimeSeconds = initSec,
+                    remainingSeconds = newRemainingSec,
+                    remainingMillis = newRemainingMs,
+                    state = TimerState.RUNNING,
+                    endTimestampMillis = newEndTimestamp
+                )
+
+                val durationText = formatDurationText(newRemainingSec)
+                TimerReceiver.scheduleTimerAlarm(
+                    getApplication(),
+                    finalId,
+                    item.label,
+                    durationText,
+                    newEndTimestamp
+                )
+            } else {
+                // Если таймер на паузе, в режиме ожидания (IDLE) или завершён
+                isTimerRunning = item.state == TimerState.COMPLETED
+                newRemainingSec = item.remainingSeconds + extraSeconds
+                newRemainingMs = newRemainingSec * 1000L
+                initSec = item.initialTimeSeconds + extraSeconds
+                val newEndTimestamp = if (isTimerRunning) now + newRemainingMs else 0L
+
+                list[index] = item.copy(
+                    initialTimeSeconds = initSec,
+                    remainingSeconds = newRemainingSec,
+                    remainingMillis = newRemainingMs,
+                    state = if (isTimerRunning) TimerState.RUNNING else item.state,
+                    endTimestampMillis = newEndTimestamp
+                )
+
+                if (isTimerRunning) {
+                    val durationText = formatDurationText(newRemainingSec)
+                    TimerReceiver.scheduleTimerAlarm(
+                        getApplication(),
+                        finalId,
+                        item.label,
+                        durationText,
+                        newEndTimestamp
+                    )
+                }
+            }
         } else {
             finalId = timerId ?: java.util.UUID.randomUUID().toString()
             initSec = extraSeconds
+            newRemainingSec = extraSeconds
+            newRemainingMs = extraSeconds * 1000L
+            val triggerTime = now + newRemainingMs
+            isTimerRunning = true
+
             val newItem = TimerItem(
                 id = finalId,
                 label = label.ifBlank { "Таймер" },
+                baseTimeSeconds = extraSeconds,
                 initialTimeSeconds = initSec,
-                remainingSeconds = extraSeconds,
-                remainingMillis = extraMillis,
+                remainingSeconds = newRemainingSec,
+                remainingMillis = newRemainingMs,
                 state = TimerState.RUNNING,
                 endTimestampMillis = triggerTime
             )
             list.add(newItem)
+
+            val durationText = formatDurationText(extraSeconds)
+            TimerReceiver.scheduleTimerAlarm(
+                getApplication(),
+                finalId,
+                label,
+                durationText,
+                triggerTime
+            )
         }
 
         _timersList.value = list
         saveTimersToStorage()
 
-        val durationText = formatDurationText(extraSeconds)
-        TimerReceiver.scheduleTimerAlarm(
-            getApplication(),
-            finalId,
-            label,
-            durationText,
-            triggerTime
-        )
-
         ClockNotificationManager.showTimerNotification(
             context = getApplication(),
             timerId = finalId,
-            remainingMillis = extraMillis,
+            remainingMillis = newRemainingMs,
             label = label,
-            isRunning = true,
+            isRunning = isTimerRunning,
             initialTimeSeconds = initSec
         )
 

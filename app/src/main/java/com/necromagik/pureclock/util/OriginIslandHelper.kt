@@ -13,11 +13,14 @@ object OriginIslandHelper {
 
     private const val TAG = "PureClock_ISLAND"
 
-    private const val FLAG_PROMOTED_ONGOING = 0x00004000
+    // Системный флаг Android 15/16 и OriginOS 5+ для активных живых уведомлений (Promoted Ongoing)
+    const val FLAG_PROMOTED_ONGOING = 0x00004000
     private const val EXTRA_SHORT_CRITICAL_TEXT = "android.shortCriticalText"
     private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
-    @Suppress("unused")
+    /**
+     * Проверяет, разрешено ли приложению отправлять живые уведомления в Остров.
+     */
     fun canPostLiveUpdates(context: Context): Boolean {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
         return try {
@@ -28,7 +31,9 @@ object OriginIslandHelper {
         }
     }
 
-    @Suppress("unused")
+    /**
+     * Открывает системную страницу настроек живых уведомлений (Live Updates) приложения.
+     */
     fun openLiveUpdatesSettings(context: Context) {
         try {
             val intent = Intent("android.settings.APP_PROMOTED_NOTIFICATIONS_SETTINGS").apply {
@@ -49,9 +54,18 @@ object OriginIslandHelper {
         }
     }
 
-    fun NotificationCompat.Builder.promoteToOriginIsland(
-        chipText: String? = null
+    /**
+     * Элегантно пробрасывает уведомление в капсулу Динамического Острова OriginOS.
+     *
+     * @param chipText Короткий текст внутри «таблетки» острова (максимум 7 символов: "04:59", "07:30").
+     * @param isAlert Если true — сигнал тревоги/будильника максимального приоритета; если false — фоновый таймер/секундомер.
+     */
+    fun NotificationCompat.Builder.applyOriginIsland(
+        chipText: String? = null,
+        isAlert: Boolean = false
     ): NotificationCompat.Builder {
+        val cleanChip = chipText?.trim()?.take(7)
+
         this.setOngoing(true)
         this.setColorized(false)
         this.setGroupSummary(false)
@@ -59,16 +73,27 @@ object OriginIslandHelper {
         this.setShowWhen(false)
         this.setUsesChronometer(false)
 
-        val extras = Bundle().apply {
+        if (isAlert) {
+            this.setPriority(NotificationCompat.PRIORITY_MAX)
+            this.setCategory(NotificationCompat.CATEGORY_ALARM)
+        }
+
+        val islandExtras = Bundle().apply {
             putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true)
             putBoolean("vivo.summaryIconRes", true)
             putInt("notification.live.operation", 1)
-            if (!chipText.isNullOrBlank()) {
-                putString(EXTRA_SHORT_CRITICAL_TEXT, chipText.take(7))
+            putBoolean(Notification.EXTRA_COLORIZED, false)
+            putBoolean(Notification.EXTRA_SHOW_WHEN, false)
+            putBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false)
+
+            if (!cleanChip.isNullOrEmpty()) {
+                putString(EXTRA_SHORT_CRITICAL_TEXT, cleanChip)
+                putString("vivo.live.chipText", cleanChip)
             }
         }
-        this.addExtras(extras)
+        this.addExtras(islandExtras)
 
+        // Поддержка стандартного API Android 15/16 через рефлексию
         try {
             val reqMethod = NotificationCompat.Builder::class.java.getMethod(
                 "setRequestPromotedOngoing",
@@ -77,36 +102,40 @@ object OriginIslandHelper {
             reqMethod.invoke(this, true)
         } catch (_: Exception) {}
 
-        if (!chipText.isNullOrBlank()) {
+        if (!cleanChip.isNullOrEmpty()) {
             try {
                 val shortTextMethod = NotificationCompat.Builder::class.java.getMethod(
                     "setShortCriticalText",
                     CharSequence::class.java
                 )
-                shortTextMethod.invoke(this, chipText.take(7))
+                shortTextMethod.invoke(this, cleanChip)
             } catch (_: Exception) {}
         }
 
         return this
     }
 
+    /**
+     * Дополнительный хэлпер для постобработки уже скомпилированного Notification-объекта.
+     */
     fun Notification.attachOriginIslandFlags(
         chipText: String? = null
     ): Notification {
         this.flags = this.flags or Notification.FLAG_ONGOING_EVENT or FLAG_PROMOTED_ONGOING
         this.color = 0
 
-        // Отключаем боковой дублирующий хронометр, так как живое время выводится крупно в заголовке
+        val cleanChip = chipText?.trim()?.take(7)
+
         this.extras.putBoolean(Notification.EXTRA_SHOW_WHEN, false)
         this.extras.putBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false)
-
         this.extras.putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true)
         this.extras.putBoolean("vivo.summaryIconRes", true)
         this.extras.putInt("notification.live.operation", 1)
         this.extras.putBoolean(Notification.EXTRA_COLORIZED, false)
 
-        if (!chipText.isNullOrBlank()) {
-            this.extras.putString(EXTRA_SHORT_CRITICAL_TEXT, chipText.take(7))
+        if (!cleanChip.isNullOrEmpty()) {
+            this.extras.putString(EXTRA_SHORT_CRITICAL_TEXT, cleanChip)
+            this.extras.putString("vivo.live.chipText", cleanChip)
         }
 
         return this

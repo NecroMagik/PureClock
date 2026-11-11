@@ -97,10 +97,12 @@ class AlarmReceiver : BroadcastReceiver() {
                             scheduler.schedule(updatedRecurring)
                         }
 
+                        val isVibrate = intent.getBooleanExtra("EXTRA_IS_VIBRATE", alarm.isVibrate)
                         val serviceIntent = Intent(context, AlarmService::class.java).apply {
                             putExtra("EXTRA_ALARM_ID", alarmId)
                             putExtra("RINGTONE_URI", alarm.ringtoneUri)
                             putExtra("EXTRA_ALARM_LABEL", alarm.label)
+                            putExtra("EXTRA_IS_VIBRATE", isVibrate)
                         }
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

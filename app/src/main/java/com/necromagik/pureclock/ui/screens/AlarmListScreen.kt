@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
+import java.time.LocalDate
 import com.necromagik.pureclock.alarm.AlarmScheduler
 import com.necromagik.pureclock.data.AlarmEntity
 import com.necromagik.pureclock.data.model.ScenaryItem
@@ -970,20 +971,59 @@ fun SubTabSelectorRow(
     }
 }
 
+private fun getExcludedPlural(count: Int): String {
+    val mod10 = count % 10
+    val mod100 = count % 100
+    val word = when {
+        mod100 in 11..19 -> "искл."
+        mod10 == 1 -> "искл."
+        mod10 in 2..4 -> "искл."
+        else -> "искл."
+    }
+    return "$count $word" // Либо "$count пропущ." если больше нравится такой вариант
+}
+
+private fun formatAlarmDateToken(date: LocalDate, today: LocalDate, isFirst: Boolean): String {
+    val daysDiff = java.time.temporal.ChronoUnit.DAYS.between(today, date)
+    return when {
+        daysDiff == 0L -> if (isFirst) "Сегодня" else "сегодня"
+        daysDiff == 1L -> if (isFirst) "Завтра" else "завтра"
+        daysDiff in 2L..7L -> {
+            date.dayOfWeek.getDisplayName(TextStyle.SHORT, RU_LOCALE)
+                .trimEnd('.')
+                .replaceFirstChar { if (it.isLowerCase()) it.titlecase(RU_LOCALE) else it.toString() }
+        }
+        else -> {
+            date.format(DateTimeFormatter.ofPattern("d MMM", RU_LOCALE)).trimEnd('.')
+        }
+    }
+}
+
+private fun formatDatesList(dates: Collection<LocalDate>, today: LocalDate): String {
+    val sorted = dates.sorted()
+    return sorted.mapIndexed { index, date ->
+        formatAlarmDateToken(date, today, isFirst = index == 0)
+    }.joinToString(", ")
+}
+
 private fun AlarmEntity.toUiModel(): AlarmUiModel {
     val formattedTime = String.format(Locale.ROOT, "%02d:%02d", hour, minute)
-    val today = java.time.LocalDate.now()
+    val today = LocalDate.now()
     val systemZone = ZoneId.systemDefault()
 
     val extraDates = parseExtraDates()
     val excludedDates = parseExcludedDates()
-    val skippedMillis = skippedDateMillis
-    val isSkipped = isEnabled && skippedMillis != null
+    val isSkipped = isEnabled && isSkipActive()
+    val skippedDate = getSkippedLocalDate()
 
     val formattedDays = when {
-        isSkipped -> {
-            val date = Instant.ofEpochMilli(skippedMillis).atZone(systemZone).toLocalDate()
-            "Пропущен: ${date.format(DateTimeFormatter.ofPattern("d MMM", RU_LOCALE))}"
+        isSkipped && skippedDate != null -> {
+            val prefix = when (skippedDate) {
+                today -> "Пропущен сегодня ("
+                today.plusDays(1) -> "Пропущен завтра ("
+                else -> "Пропущен ("
+            }
+            "$prefix${skippedDate.format(DateTimeFormatter.ofPattern("d MMM", RU_LOCALE)).trimEnd('.')})"
         }
         daysOfWeek != 0 -> {
             val base = when (daysOfWeek) {
@@ -992,27 +1032,31 @@ private fun AlarmEntity.toUiModel(): AlarmUiModel {
                 96 -> "Выходные"
                 else -> DayOfWeek.entries
                     .filter { day -> (daysOfWeek and (1 shl (day.value - 1))) != 0 }
-                    .joinToString(", ") { it.getDisplayName(TextStyle.SHORT, RU_LOCALE) }
+                    .joinToString(", ") {
+                        it.getDisplayName(TextStyle.SHORT, RU_LOCALE)
+                            .trimEnd('.')
+                            .replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase(RU_LOCALE) else c.toString() }
+                    }
             }
-            if (excludedDates.isNotEmpty()) "$base (-${excludedDates.size} дн.)" else base
+            when {
+                extraDates.isNotEmpty() && excludedDates.isNotEmpty() ->
+                    "$base (+${formatDatesList(extraDates, today)}, ${getExcludedPlural(excludedDates.size)})"
+                extraDates.isNotEmpty() ->
+                    "$base, +${formatDatesList(extraDates, today)}"
+                excludedDates.isNotEmpty() ->
+                    "$base (${getExcludedPlural(excludedDates.size)})"
+                else -> base
+            }
         }
         extraDates.isNotEmpty() -> {
-            if (extraDates.size == 1) {
-                val date = extraDates.first()
-                when (date) {
-                    today -> "Сегодня"
-                    today.plusDays(1) -> "Завтра"
-                    else -> date.format(DateTimeFormatter.ofPattern("d MMMM", RU_LOCALE))
-                }
-            } else {
-                "${extraDates.size} выбранных дат"
-            }
+            formatDatesList(extraDates, today)
         }
         else -> {
             val calendar = java.util.Calendar.getInstance().apply {
                 set(java.util.Calendar.HOUR_OF_DAY, hour)
                 set(java.util.Calendar.MINUTE, minute)
                 set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
             }
             if (calendar.timeInMillis <= System.currentTimeMillis()) "Завтра" else "Сегодня"
         }

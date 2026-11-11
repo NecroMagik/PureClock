@@ -11,6 +11,7 @@ import com.necromagik.pureclock.MainActivity
 import com.necromagik.pureclock.R
 import com.necromagik.pureclock.alarm.StopwatchService
 import com.necromagik.pureclock.alarm.TimerService
+import com.necromagik.pureclock.util.OriginIslandHelper.applyOriginIsland
 import com.necromagik.pureclock.util.OriginIslandHelper.attachOriginIslandFlags
 import java.util.Locale
 
@@ -125,6 +126,7 @@ object ClockNotificationManager {
             lapIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+
         val totalSec = (startTimeMillis / 1000L).coerceAtLeast(0L)
         val formattedTime = formatClockTime(totalSec)
 
@@ -140,12 +142,12 @@ object ClockNotificationManager {
             .setContentText(subtitleText)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setShowWhen(false)
-            .setUsesChronometer(false)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(true)
+            .applyOriginIsland(
+                chipText = formattedTime,
+                isAlert = false
+            )
 
         if (isRunning) {
             builder.addAction(android.R.drawable.ic_menu_mylocation, "Круг", lapPendingIntent)
@@ -155,23 +157,7 @@ object ClockNotificationManager {
             builder.addAction(android.R.drawable.ic_media_play, "Старт", togglePendingIntent)
         }
 
-        return builder.build().attachOriginIslandFlags(
-            chipText = formattedTime
-        )
-    }
-
-    @Suppress("unused")
-    fun showStopwatchNotification(
-        context: Context,
-        startTimeMillis: Long,
-        currentLapCount: Int,
-        isRunning: Boolean
-    ) {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(
-            NOTIFICATION_ID_STOPWATCH,
-            buildStopwatchNotification(context, startTimeMillis, currentLapCount, isRunning)
-        )
+        return builder.build().attachOriginIslandFlags(chipText = formattedTime)
     }
 
     fun buildTimerNotification(
@@ -251,12 +237,12 @@ object ClockNotificationManager {
             .setContentText(finalSubtitle)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setShowWhen(false)
-            .setUsesChronometer(false)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(true)
+            .applyOriginIsland(
+                chipText = formattedCountdown,
+                isAlert = false
+            )
 
         builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Закрыть", cancelPendingIntent)
         builder.addAction(R.drawable.ic_notification, "+1 мин", addMinutePendingIntent)
@@ -267,9 +253,7 @@ object ClockNotificationManager {
             builder.addAction(android.R.drawable.ic_media_play, "Старт", togglePendingIntent)
         }
 
-        return builder.build().attachOriginIslandFlags(
-            chipText = formattedCountdown
-        )
+        return builder.build().attachOriginIslandFlags(chipText = formattedCountdown)
     }
 
     fun showTimerNotification(

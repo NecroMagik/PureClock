@@ -57,15 +57,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.necromagik.pureclock.MainActivity
-import com.necromagik.pureclock.data.AppDatabase
 import com.necromagik.pureclock.data.SettingsManager
 import com.necromagik.pureclock.ui.animation.bounceClick
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
 import com.necromagik.pureclock.ui.theme.PureClockTheme
 import com.necromagik.pureclock.ui.theme.pure3DEffect
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -73,6 +69,65 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.random.Random
+
+// ============================================================================
+// ПУЛЫ ФРАЗ ДЛЯ БУДИЛЬНИКА И ТАЙМЕРА
+// ============================================================================
+
+private val MORNING_ALARM_PHRASES = listOf(
+    "Доброе утро, пора просыпаться!",
+    "Новый день начался",
+    "Время вставать и покорять вершины",
+    "Пора встречать это утро",
+    "Подъём! Впереди отличный день",
+    "Утро наступило — пора в строй"
+)
+
+private val DAY_ALARM_PHRASES = listOf(
+    "Время для запланированных дел",
+    "Напоминание по расписанию",
+    "Пора переключиться на задачу",
+    "Запланированное событие наступило",
+    "Время не ждёт — пора действовать!",
+    "Перерыв окончен, пора за работу"
+)
+
+private val EVENING_ALARM_PHRASES = listOf(
+    "Вечернее напоминание",
+    "Время для важных вечерних планов",
+    "Пора завершать текущие дела",
+    "Запланированное вечернее событие",
+    "Сигнал к действию",
+    "Не забудьте про намеченные планы"
+)
+
+private val NIGHT_ALARM_PHRASES = listOf(
+    "Ночной сигнал",
+    "Назначенное время среди ночи",
+    "Внимание: ночной будильник",
+    "Ночное пробуждение по графику",
+    "Пора вставать, хоть за окном и ночь",
+    "Запланированный ночной подъем"
+)
+
+private val TIMER_FINISHED_PHRASES = listOf(
+    "Время вышло!",
+    "Отсчёт завершён",
+    "Таймер сработал",
+    "Заданное время истекло",
+    "Финиш! Пора проверить результат",
+    "Время подошло к концу"
+)
+
+private fun getAlarmPhraseForTime(time: LocalTime = LocalTime.now()): String {
+    val pool = when (time.hour) {
+        in 5..11 -> MORNING_ALARM_PHRASES
+        in 12..17 -> DAY_ALARM_PHRASES
+        in 18..22 -> EVENING_ALARM_PHRASES
+        else -> NIGHT_ALARM_PHRASES
+    }
+    return pool.random()
+}
 
 class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
@@ -88,6 +143,9 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
 
     private var currentTimerId: String? = null
     private val durationTextState = mutableStateOf("")
+
+    private var currentAlarmIdState by mutableLongStateOf(-1L)
+    private var currentAlarmLabelState by mutableStateOf("Будильник")
 
     private val closeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -112,9 +170,7 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                // Предотвращаем случайное закрытие кнопкой/жестом "Назад" без явного действия
-            }
+            override fun handleOnBackPressed() {}
         })
 
         parseIntentData(intent)
@@ -123,17 +179,16 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
         accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
         val isTimer = intent.getBooleanExtra("IS_TIMER", false)
-        val label = intent.getStringExtra("ALARM_LABEL") ?: if (isTimer) "Таймер" else "Будильник"
 
         setContent {
             PureClockTheme {
                 AlarmAlertContent(
                     isTimer = isTimer,
-                    displayLabel = label,
+                    displayLabel = currentAlarmLabelState,
                     timerDurationDisplay = durationTextState.value,
-                    onDismiss = { stopAlarmAndExit() },
-                    onSnooze = { if (!isTimer) snoozeAlarm() else stopAlarmAndExit() },
-                    onAddTimerTime = { extraMinutes -> addTimerMinutesAndRestart(label, extraMinutes) },
+                    onDismiss = { stopAlarmAndExit(isTimer) },
+                    onSnooze = { if (!isTimer) snoozeAlarm() else stopAlarmAndExit(isTimer) },
+                    onAddTimerTime = { extraMinutes -> addTimerMinutesAndRestart(currentAlarmLabelState, extraMinutes) },
                     registerShakeListener = { listener ->
                         shakeListener = listener
                         accelerometer?.let {
@@ -153,6 +208,7 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun parseIntentData(intent: Intent) {
+        val isTimer = intent.getBooleanExtra("IS_TIMER", false)
         currentTimerId = intent.getStringExtra(TimerService.EXTRA_TIMER_ID)
             ?: intent.getStringExtra("EXTRA_TIMER_ID")
         val durationSec = intent.getLongExtra("EXTRA_TIMER_DURATION_SECONDS", 0L)
@@ -163,6 +219,15 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
             !passedDurationText.isNullOrBlank() -> passedDurationText
             else -> "00:00"
         }
+
+        val newId = intent.getLongExtra("EXTRA_ALARM_ID", -1L)
+        if (newId != -1L) {
+            currentAlarmIdState = newId
+        }
+
+        val passedLabel = intent.getStringExtra("ALARM_LABEL")
+            ?: intent.getStringExtra("EXTRA_ALARM_LABEL")
+        currentAlarmLabelState = passedLabel ?: if (isTimer) "Таймер" else "Будильник"
     }
 
     private fun addTimerMinutesAndRestart(label: String, minutesToAdd: Int) {
@@ -170,7 +235,7 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
         notificationManager.cancel(TimerService.ALARM_NOTIFICATION_ID)
 
         TimerService.extendTimer(this, currentTimerId, label, minutesToAdd)
-        dismissAndExit()
+        finish()
     }
 
     private fun formatTimerDuration(totalSeconds: Long): String {
@@ -190,20 +255,28 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun snoozeAlarm() {
-        val alarmId = intent.getLongExtra("EXTRA_ALARM_ID", -1L)
-        if (alarmId != -1L) {
-            val settingsManager = SettingsManager.getInstance(this)
-            val snoozeMinutes = settingsManager.defaultSnoozeTimeMinutes
-
-            CoroutineScope(Dispatchers.IO).launch {
-                val db = AppDatabase.getDatabase(applicationContext)
-                val alarm = db.alarmDao().getAlarmById(alarmId)
-                if (alarm != null) {
-                    AlarmScheduler(applicationContext).snooze(alarm, snoozeMinutes)
-                }
-            }
+        val intent = Intent(this, AlarmService::class.java).apply {
+            action = NoticeCenter.ACTION_SNOOZE_ALARM
+            putExtra("EXTRA_ALARM_ID", currentAlarmIdState)
         }
-        stopAlarmAndExit()
+        startService(intent)
+        finish()
+    }
+
+    private fun stopAlarmAndExit(isTimer: Boolean) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        notificationManager.cancel(TimerService.ALARM_NOTIFICATION_ID)
+
+        if (isTimer) {
+            TimerService.dismissRingingTimer(this, currentTimerId)
+        } else {
+            val dismissIntent = Intent(this, AlarmService::class.java).apply {
+                action = NoticeCenter.ACTION_DISMISS_ALARM
+                putExtra("EXTRA_ALARM_ID", currentAlarmIdState)
+            }
+            startService(dismissIntent)
+        }
+        finish()
     }
 
     private fun wakeUpDeviceAndShowOverLockscreen() {
@@ -266,22 +339,6 @@ class AlarmAlertActivity : ComponentActivity(), SensorEventListener {
         }
         super.onDestroy()
     }
-
-    private fun stopAlarmAndExit() {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-        notificationManager.cancel(TimerService.ALARM_NOTIFICATION_ID)
-
-        if (intent.getBooleanExtra("IS_TIMER", false)) {
-            TimerService.dismissRingingTimer(this, currentTimerId)
-        } else {
-            stopService(Intent(this, AlarmService::class.java))
-        }
-        dismissAndExit()
-    }
-
-    private fun dismissAndExit() {
-        finish()
-    }
 }
 
 // ============================================================================
@@ -308,6 +365,15 @@ fun AlarmAlertContent(
     val snoozeMinutes = settingsManager?.defaultSnoozeTimeMinutes ?: 10
 
     var currentTimeText by remember { mutableStateOf("") }
+
+    // Случайная фраза выбирается один раз при открытии/смене сигнала и не мелькает каждую секунду
+    val alertSubtitle = remember(isTimer, displayLabel) {
+        if (isTimer) {
+            TIMER_FINISHED_PHRASES.random()
+        } else {
+            getAlarmPhraseForTime()
+        }
+    }
 
     LaunchedEffect(isTimer) {
         if (!isTimer) {
@@ -494,10 +560,11 @@ fun AlarmAlertContent(
                 )
 
                 Text(
-                    text = if (isTimer) "Таймер завершил отсчёт" else "Пора просыпаться!",
+                    text = alertSubtitle,
                     color = Color.White.copy(alpha = 0.6f),
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
                 )
             }
 
@@ -1048,7 +1115,7 @@ private fun TimerOneWaySwipeBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Свайп вправо для сброса", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("Проведи вправо для сброса", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.Gray.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
         }
 
@@ -1157,7 +1224,7 @@ private fun AlarmAlertPreview_Timer() {
         AlarmAlertContent(
             isTimer = true,
             displayLabel = "Варка спагетти",
-            timerDurationDisplay = "5м 00с"
+            timerDurationDisplay = "95м 00с"
         )
     }
 }

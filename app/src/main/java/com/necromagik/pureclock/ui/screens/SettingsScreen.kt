@@ -2,7 +2,7 @@ package com.necromagik.pureclock.ui.screens
 
 import android.app.Activity
 import android.appwidget.AppWidgetManager
-import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +48,7 @@ import com.necromagik.pureclock.ui.components.ClockStylePickerDialog
 import com.necromagik.pureclock.ui.components.PureSwitch
 import com.necromagik.pureclock.ui.components.SwitchIconType
 import com.necromagik.pureclock.ui.theme.LocalPureClockConfig
+import com.necromagik.pureclock.ui.theme.PureClockTheme
 import com.necromagik.pureclock.ui.theme.pure3DEffect
 import com.necromagik.pureclock.util.ApkUpdateInstaller
 import com.necromagik.pureclock.widget.PureClockWidgetProvider
@@ -100,8 +102,15 @@ private fun SettingsMainContent(
     val appVersion = remember { settingsManager.appVersionName }
     val installSource = remember { settingsManager.getInstallationSource() }
 
-    val activeWidgetIds = remember {
-        PureClockWidgetProvider.getActiveWidgetIds(context)
+
+    val isInspection = androidx.compose.ui.platform.LocalInspectionMode.current
+
+    val activeWidgetIds = remember(isInspection) {
+        if (isInspection) {
+            intArrayOf(1) // Мок для предпросмотра
+        } else {
+            PureClockWidgetProvider.getActiveWidgetIds(context)
+        }
     }
     val hasActiveWidget = activeWidgetIds.isNotEmpty()
 
@@ -113,8 +122,7 @@ private fun SettingsMainContent(
     var showDeveloperInfoDialog by remember { mutableStateOf(false) }
     var showBetaWarningDialog by remember { mutableStateOf(false) }
 
-    var isCheckingStoreUpdates by remember { mutableStateOf(false) }
-    var isCheckingBetaUpdates by remember { mutableStateOf(false) }
+    var isCheckingUpdates by remember { mutableStateOf(false) }
     var playUpdateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var betaUpdateResultDialog by remember { mutableStateOf<SettingsManager.UpdateChecker.ReleaseInfo?>(null) }
     var showNoUpdatesToast by remember { mutableStateOf(false) }
@@ -164,7 +172,7 @@ private fun SettingsMainContent(
         ) {
             item { SettingsHeader("Оформление") }
 
-            // 1. Главная страница теперь стоит первой (на месте настроек тем)
+            // 1. Главная страница
             item {
                 val mainTabTitles = listOf("Будильник", "Мировое время", "Таймер", "Секундомер") +
                         if (settingsManager.ifRelease == 1) listOf("Сценарии") else emptyList()
@@ -439,50 +447,78 @@ private fun SettingsMainContent(
                 }
             }
 
-            // ДВОЙНОЙ АПДЕЙТЕР: Маркеты (Google Play / RuStore) + резервный фоллбэк на GitHub Releases
+            // =========================================================================
+            // ЕДИНЫЙ УНИВЕРСАЛЬНЫЙ АПДЕЙТЕР (PLAY MARKET / RUSTORE / GITHUB MASTER / GITHUB BETA)
+            // =========================================================================
             val isPlay = installSource == SettingsManager.InstallSource.GOOGLE_PLAY ||
                     installSource == SettingsManager.InstallSource.SYSTEM_PREBUILT
             val isRuStore = installSource == SettingsManager.InstallSource.RUSTORE
 
-            if (!allowBetaUpdates && installSource.isOfficial) {
-                item {
-                    SettingsClickCard(
-                        icon = Icons.Default.SystemUpdate,
-                        title = when {
-                            playUpdateInfo != null -> "Установить обновление Google Play"
-                            isBetaUpdateAvailable && latestBetaRelease != null -> "Доступна версия ${latestBetaRelease?.tagName}"
-                            isPlay -> "Проверить обновление в Google Play"
-                            isRuStore -> "Проверить обновление в RuStore"
-                            else -> "Проверить обновления"
-                        },
-                        subtitle = when {
-                            isCheckingStoreUpdates -> "Опрос серверов обновлений..."
-                            playUpdateInfo != null -> "Новая версия готова к установке через Play Store"
-                            isBetaUpdateAvailable && latestBetaRelease != null -> "Найдена новая сборка (нажмите для загрузки)"
-                            isPlay -> "Текущая версия: $appVersion • Google Play API + GitHub"
-                            isRuStore -> "Текущая версия: $appVersion • RuStore SDK + GitHub"
-                            else -> "Текущая версия: $appVersion"
-                        },
-                        onClick = {
-                            if (isPlay && playUpdateInfo != null && context is Activity) {
-                                settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
-                                    activity = context,
-                                    appUpdateInfo = playUpdateInfo!!,
-                                    launcher = playUpdateLauncher,
-                                    updateType = AppUpdateType.FLEXIBLE
-                                )
-                            } else if (isBetaUpdateAvailable && latestBetaRelease != null) {
-                                betaUpdateResultDialog = latestBetaRelease
-                            } else if (!isCheckingStoreUpdates) {
-                                isCheckingStoreUpdates = true
-                                showNoUpdatesToast = false
-                                coroutineScope.launch {
-                                    var foundInStore = false
+            item {
+                val buttonTitle = when {
+                    playUpdateInfo != null -> "Установить обновление Google Play"
+                    isBetaUpdateAvailable && latestBetaRelease != null -> "Скачать обновление ${latestBetaRelease?.tagName}"
+                    allowBetaUpdates -> "Проверить обновления (GitHub Beta)"
+                    isPlay -> "Проверить обновление (Google Play)"
+                    isRuStore -> "Проверить обновление (RuStore)"
+                    else -> "Проверить обновления (GitHub Master)"
+                }
+
+                val buttonSubtitle = when {
+                    isCheckingUpdates -> "Опрос серверов обновлений..."
+                    playUpdateInfo != null -> "Новая версия готова к установке через Play Store"
+                    isBetaUpdateAvailable && latestBetaRelease != null -> "Нажмите для просмотра списка изменений и загрузки APK"
+                    allowBetaUpdates -> "Текущая сборка: $appVersion • Ветка tree/beta"
+                    isPlay -> "Текущая версия: $appVersion • Google Play API"
+                    isRuStore -> "Текущая версия: $appVersion • RuStore SDK"
+                    else -> "Текущая версия: $appVersion • Релизы GitHub"
+                }
+
+                val buttonIcon = when {
+                    playUpdateInfo != null -> Icons.Default.SystemUpdate
+                    isBetaUpdateAvailable -> Icons.Default.Upgrade
+                    allowBetaUpdates -> Icons.Default.Science
+                    else -> Icons.Default.Sync
+                }
+
+                SettingsClickCard(
+                    icon = buttonIcon,
+                    title = buttonTitle,
+                    subtitle = buttonSubtitle,
+                    onClick = {
+                        if (isPlay && !allowBetaUpdates && playUpdateInfo != null && context is Activity) {
+                            settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
+                                activity = context,
+                                appUpdateInfo = playUpdateInfo!!,
+                                launcher = playUpdateLauncher,
+                                updateType = AppUpdateType.FLEXIBLE
+                            )
+                        } else if (isBetaUpdateAvailable && latestBetaRelease != null) {
+                            betaUpdateResultDialog = latestBetaRelease
+                        } else if (!isCheckingUpdates) {
+                            isCheckingUpdates = true
+                            showNoUpdatesToast = false
+                            coroutineScope.launch {
+                                var foundUpdate = false
+
+                                // 1. Если включён бета-канал — приоритет всегда у GitHub Beta
+                                if (allowBetaUpdates) {
+                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates(
+                                        currentVersion = appVersion,
+                                        allowBeta = true
+                                    )
+                                    settingsManager.setBetaUpdateInfo(release)
+                                    if (release != null) {
+                                        foundUpdate = true
+                                        betaUpdateResultDialog = release
+                                    }
+                                } else {
+                                    // 2. Play Store
                                     if (isPlay) {
                                         val info = settingsManager.checkGooglePlayInAppUpdates()
                                         playUpdateInfo = info
                                         if (info != null && context is Activity) {
-                                            foundInStore = true
+                                            foundUpdate = true
                                             settingsManager.getGooglePlayUpdateManager().startUpdateFlow(
                                                 activity = context,
                                                 appUpdateInfo = info,
@@ -490,41 +526,47 @@ private fun SettingsMainContent(
                                                 updateType = AppUpdateType.FLEXIBLE
                                             )
                                         }
-                                    } else if (isRuStore) {
+                                    }
+                                    // 3. RuStore
+                                    else if (isRuStore) {
                                         val updateInfo = settingsManager.checkRuStoreInAppUpdates()
                                         if (updateInfo != null) {
-                                            foundInStore = true
+                                            foundUpdate = true
                                             settingsManager.getRuStoreUpdateManager().openStorePage()
                                         }
                                     }
 
-                                    // Если Маркет еще не раскатил обновление — проверяем стабильные релизы на GitHub
-                                    if (!foundInStore) {
+                                    // 4. GitHub Master (Стабильный релиз, если в Маркете ещё нет)
+                                    if (!foundUpdate) {
                                         val ghRelease = SettingsManager.UpdateChecker.checkForBetaUpdates(
                                             currentVersion = appVersion,
                                             allowBeta = false
                                         )
                                         settingsManager.setBetaUpdateInfo(ghRelease)
                                         if (ghRelease != null) {
+                                            foundUpdate = true
                                             betaUpdateResultDialog = ghRelease
-                                        } else {
-                                            showNoUpdatesToast = true
                                         }
                                     }
-                                    isCheckingStoreUpdates = false
                                 }
+
+                                if (!foundUpdate) {
+                                    showNoUpdatesToast = true
+                                }
+                                isCheckingUpdates = false
                             }
-                        },
-                        shape = cardShape
-                    )
-                }
+                        }
+                    },
+                    shape = cardShape
+                )
             }
 
+            // Переключатель экспериментального Бета-канала
             item {
                 SettingsSwitchCard(
                     icon = Icons.Default.Science,
                     title = "Бета-канал (GitHub)",
-                    subtitle = "Возможность получать обновления в первых рядах. Перевод на экспериментальную ветку обновлений",
+                    subtitle = "Получение предварительных сборок из ветки tree/beta в обход магазинов приложений",
                     isChecked = allowBetaUpdates,
                     onCheckedChange = { checked ->
                         if (checked) {
@@ -536,42 +578,6 @@ private fun SettingsMainContent(
                     },
                     shape = cardShape
                 )
-            }
-
-            if (allowBetaUpdates || !installSource.isOfficial) {
-                item {
-                    SettingsClickCard(
-                        icon = Icons.Default.Upgrade,
-                        title = if (isBetaUpdateAvailable) "Скачать обновление ${latestBetaRelease?.tagName}" else "Проверить обновления (GitHub)",
-                        subtitle = when {
-                            isCheckingBetaUpdates -> "Связь с репозиторием GitHub..."
-                            isBetaUpdateAvailable -> "Нажмите для просмотра списка изменений и загрузки APK"
-                            else -> "Текущая сборка: $appVersion"
-                        },
-                        onClick = {
-                            if (isBetaUpdateAvailable && latestBetaRelease != null) {
-                                betaUpdateResultDialog = latestBetaRelease
-                            } else if (!isCheckingBetaUpdates) {
-                                isCheckingBetaUpdates = true
-                                showNoUpdatesToast = false
-                                coroutineScope.launch {
-                                    val release = SettingsManager.UpdateChecker.checkForBetaUpdates(
-                                        currentVersion = appVersion,
-                                        allowBeta = true
-                                    )
-                                    isCheckingBetaUpdates = false
-                                    settingsManager.setBetaUpdateInfo(release)
-                                    if (release != null) {
-                                        betaUpdateResultDialog = release
-                                    } else {
-                                        showNoUpdatesToast = true
-                                    }
-                                }
-                            }
-                        },
-                        shape = cardShape
-                    )
-                }
             }
 
             item {
@@ -725,7 +731,7 @@ private fun SettingsMainContent(
                 Text(
                     "Вы переходите на бета-канал обновлений из ветки tree/beta (GitHub).\n\n" +
                             "Каждая бета-версия имеет буквенный индекс (например, 1.29a) и может работать нестабильно. " +
-                            "Все обновления будут доставляться вручную через GitHub вместо официальных маркетов.",
+                            "Все обновления будут проверяться напрямую через GitHub вместо официальных маркетов.",
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
@@ -973,6 +979,8 @@ private fun SettingsMainContent(
             title = "Предварительное уведомление",
             options = listOf(
                 0 to "Отключено",
+                5 to "За 5 минут",
+                10 to "За 10 минут",
                 15 to "За 15 минут",
                 30 to "За 30 минут",
                 60 to "За 1 час"
@@ -981,6 +989,7 @@ private fun SettingsMainContent(
             onSelect = {
                 showUpcomingNoticeDialog = false
                 settingsManager.upcomingNotificationMinutes = it
+                com.necromagik.pureclock.alarm.AlarmScheduler.rescheduleAll(context)
             },
             onDismiss = { showUpcomingNoticeDialog = false }
         )
@@ -1066,7 +1075,6 @@ private fun SettingsSwitchCard(
 ) {
     val themeConfig = LocalPureClockConfig.current
 
-    // Динамический цвет иконки и её фона в зависимости от состояния переключателя
     val dynamicIconTint by animateColorAsState(
         targetValue = if (isChecked) themeConfig.accentColor else Color.Gray,
         animationSpec = tween(250),
@@ -1138,7 +1146,6 @@ private fun SettingsClickCard(
     iconTint: Color? = null
 ) {
     val themeConfig = LocalPureClockConfig.current
-    // Все обычные значки теперь акцентные по умолчанию
     val resolvedTint = iconTint ?: themeConfig.accentColor
 
     Box(
@@ -1413,4 +1420,29 @@ private fun <T> SingleChoiceDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(20.dp)
     )
+}
+
+// ============================================================================
+// ПРЕВЬЮ ЭКРАНА НАСТРОЕК (COMPOSE PREVIEW)
+// ============================================================================
+
+@Preview(name = "Settings Screen - Dark", showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun SettingsScreenPreviewDark() {
+    PureClockTheme(
+        themeMode = "DARK",
+        isPureMonocolor = true,
+        accentColor = Color(0xFF00E676),
+        cardCornerRadiusDp = 20,
+        is3dEnabled = true,
+        isGlowEnabled = true,
+        depthIntensityDp = 8
+    ) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            SettingsMainContent(
+                onBackClick = {},
+                onOpenThemeEngine = {}
+            )
+        }
+    }
 }

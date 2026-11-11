@@ -132,40 +132,48 @@ fun AddEditAlarmScreen(
 
     val repeatSubtitle by remember(extraDates, excludedDates, daysMask) {
         derivedStateOf {
-            val dateFormat = DateTimeFormatter.ofPattern("d MMM", RU_LOCALE)
+            val today = LocalDate.now()
             val sortedExtra = extraDates.sorted()
             val sortedExcluded = excludedDates.sorted()
 
+            fun formatToken(d: LocalDate, isFirst: Boolean): String {
+                val diff = java.time.temporal.ChronoUnit.DAYS.between(today, d)
+                return when {
+                    diff == 0L -> if (isFirst) "Сегодня" else "сегодня"
+                    diff == 1L -> if (isFirst) "Завтра" else "завтра"
+                    diff in 2L..7L -> d.dayOfWeek.getDisplayName(JavaTextStyle.SHORT, RU_LOCALE).trimEnd('.').replaceFirstChar { it.uppercase() }
+                    else -> d.format(DateTimeFormatter.ofPattern("d MMM", RU_LOCALE)).trimEnd('.')
+                }
+            }
+
+            val baseDays = when (daysMask) {
+                127 -> "Каждый день"
+                31 -> "Будни"
+                96 -> "Выходные"
+                0 -> null
+                else -> DayOfWeek.entries
+                    .filter { (daysMask and (1 shl (it.value - 1))) != 0 }
+                    .joinToString(", ") {
+                        it.getDisplayName(JavaTextStyle.SHORT, RU_LOCALE).trimEnd('.').replaceFirstChar { c -> c.uppercase() }
+                    }
+            }
+
             when {
-                sortedExtra.isNotEmpty() && sortedExcluded.isNotEmpty() -> {
-                    "+${sortedExtra.size} дат, -${sortedExcluded.size} искл."
+                baseDays != null && sortedExtra.isNotEmpty() && sortedExcluded.isNotEmpty() -> {
+                    val extras = sortedExtra.mapIndexed { idx, d -> formatToken(d, idx == 0) }.joinToString(", ")
+                    "$baseDays (+${extras}, ${sortedExcluded.size} искл.)"
+                }
+                baseDays != null && sortedExtra.isNotEmpty() -> {
+                    val extras = sortedExtra.mapIndexed { idx, d -> formatToken(d, idx == 0) }.joinToString(", ")
+                    "$baseDays, +$extras"
+                }
+                baseDays != null -> {
+                    if (sortedExcluded.isNotEmpty()) "$baseDays (${sortedExcluded.size} искл.)" else baseDays
                 }
                 sortedExtra.isNotEmpty() -> {
-                    if (sortedExtra.size == 1) {
-                        val date = sortedExtra.first()
-                        val today = LocalDate.now()
-                        when (date) {
-                            today -> "Сегодня (${date.format(dateFormat)})"
-                            today.plusDays(1) -> "Завтра (${date.format(dateFormat)})"
-                            else -> date.format(dateFormat)
-                        }
-                    } else if (sortedExtra.size <= 3) {
-                        sortedExtra.joinToString(", ") { it.format(dateFormat) }
-                    } else {
-                        val preview = sortedExtra.take(2).joinToString(", ") { it.format(dateFormat) }
-                        val remaining = sortedExtra.size - 2
-                        "$preview и ещё ${getPluralDays(remaining)}"
-                    }
+                    sortedExtra.mapIndexed { idx, d -> formatToken(d, idx == 0) }.joinToString(", ")
                 }
-                sortedExcluded.isNotEmpty() -> {
-                    if (sortedExcluded.size <= 2) {
-                        "Искл: " + sortedExcluded.joinToString(", ") { it.format(dateFormat) }
-                    } else {
-                        "Исключено ${getPluralDays(sortedExcluded.size, isExcluded = true)}"
-                    }
-                }
-                daysMask != 0 -> "По выбранным дням"
-                else -> "Однократно (ближайшее время)"
+                else -> "Однократный"
             }
         }
     }
