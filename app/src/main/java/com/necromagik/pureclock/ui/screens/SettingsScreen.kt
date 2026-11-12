@@ -60,7 +60,9 @@ import java.io.File
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit = {},
-    onNavigateToThemeEngine: () -> Unit = {}
+    onNavigateToThemeEngine: () -> Unit = {},
+    autoOpenUpdateDialog: Boolean = false,
+    onUpdateDialogConsumed: () -> Unit = {}
 ) {
     BackHandler {
         onBackClick()
@@ -68,7 +70,9 @@ fun SettingsScreen(
 
     SettingsMainContent(
         onBackClick = onBackClick,
-        onOpenThemeEngine = onNavigateToThemeEngine
+        onOpenThemeEngine = onNavigateToThemeEngine,
+        autoOpenUpdateDialog = autoOpenUpdateDialog,
+        onUpdateDialogConsumed = onUpdateDialogConsumed
     )
 }
 
@@ -76,7 +80,9 @@ fun SettingsScreen(
 @Composable
 private fun SettingsMainContent(
     onBackClick: () -> Unit,
-    onOpenThemeEngine: () -> Unit
+    onOpenThemeEngine: () -> Unit,
+    autoOpenUpdateDialog: Boolean = false,
+    onUpdateDialogConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settingsManager = remember { SettingsManager.getInstance(context) }
@@ -132,6 +138,13 @@ private fun SettingsMainContent(
 
     val warningColor = Color(0xFFFF9800)
     val pureOsBlueColor = Color(0xFF2979FF)
+
+    LaunchedEffect(autoOpenUpdateDialog, latestBetaRelease) {
+        if (autoOpenUpdateDialog && latestBetaRelease != null) {
+            betaUpdateResultDialog = latestBetaRelease
+            onUpdateDialogConsumed()
+        }
+    }
 
     val playUpdateLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()

@@ -188,6 +188,7 @@ fun MainScreen(viewModel: AlarmViewModel) {
     }
 
     var isUpdateBubbleDismissed by remember { mutableStateOf(false) }
+    var openSettingsWithUpdateDialog by remember { mutableStateOf(false) }
 
     var backPressedOnceTime by remember { mutableLongStateOf(0L) }
     val activity = context as? Activity
@@ -317,8 +318,13 @@ fun MainScreen(viewModel: AlarmViewModel) {
                     when (route) {
                         ScreenRoute.SETTINGS -> {
                             SettingsScreen(
-                                onBackClick = { currentRoute = ScreenRoute.MAIN },
-                                onNavigateToThemeEngine = { currentRoute = ScreenRoute.THEME_ENGINE }
+                                onBackClick = {
+                                    openSettingsWithUpdateDialog = false
+                                    currentRoute = ScreenRoute.MAIN
+                                },
+                                onNavigateToThemeEngine = { currentRoute = ScreenRoute.THEME_ENGINE },
+                                autoOpenUpdateDialog = openSettingsWithUpdateDialog,
+                                onUpdateDialogConsumed = { openSettingsWithUpdateDialog = false }
                             )
                         }
 
@@ -768,7 +774,10 @@ fun MainScreen(viewModel: AlarmViewModel) {
                                                     isGlowEnabled = themeConfig.isGlowEnabled,
                                                     surfaceColor = MaterialTheme.colorScheme.surface
                                                 )
-                                                .clickable { currentRoute = ScreenRoute.SETTINGS }
+                                                .clickable {
+                                                    openSettingsWithUpdateDialog = true
+                                                    currentRoute = ScreenRoute.SETTINGS
+                                                }
                                                 .bounceClick()
                                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                                         ) {
